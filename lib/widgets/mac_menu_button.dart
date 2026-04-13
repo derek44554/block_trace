@@ -24,7 +24,7 @@ class _MacMenuButtonState extends State<MacMenuButton> {
   @override
   Widget build(BuildContext context) {
     final isActive = widget.isActive;
-    final bgOpacity = isActive ? 0.12 : _isHovering ? 0.08 : 0.03;
+    final bgOpacity = isActive ? 0.15 : _isHovering ? 0.08 : 0.03;
     final borderOpacity = isActive ? 0.24 : _isHovering ? 0.14 : 0.08;
 
     return MouseRegion(
@@ -49,7 +49,7 @@ class _MacMenuButtonState extends State<MacMenuButton> {
               Icon(
                 widget.icon,
                 color: Colors.white.withValues(alpha: isActive ? 0.95 : 0.7),
-                size: 16,
+                size: 18,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -58,7 +58,7 @@ class _MacMenuButtonState extends State<MacMenuButton> {
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: isActive ? 0.96 : 0.78),
                     fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                    fontSize: 12.5,
+                    fontSize: 13.0,
                     letterSpacing: 0.2,
                   ),
                 ),

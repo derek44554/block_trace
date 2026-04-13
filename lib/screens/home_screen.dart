@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:block_flutter/block_flutter.dart';
 import '../core/platform_helper.dart';
 import '../models/block_item.dart';
@@ -59,9 +60,11 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
               padding: EdgeInsets.all(isCompact ? 10 : 16),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: menuWidth,
-                    child: _buildSidebar(isCompact),
+                  DragToMoveArea(
+                    child: SizedBox(
+                      width: menuWidth,
+                      child: _buildSidebar(isCompact),
+                    ),
                   ),
                   SizedBox(width: isCompact ? 10 : 16),
                   Expanded(child: _buildContentArea(isCompact)),
@@ -76,10 +79,10 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
 
   Widget _buildSidebar(bool isCompact) {
     return Container(
-      padding: EdgeInsets.fromLTRB(12, isCompact ? 12 : 16, 12, isCompact ? 12 : 16),
+      padding: EdgeInsets.fromLTRB(12, isCompact ? 42 : 48, 12, isCompact ? 12 : 16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: Colors.white.withValues(alpha: 0.03),
+        color: Colors.white.withValues(alpha: 0.05),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
@@ -87,14 +90,21 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
           // 标题
           Padding(
             padding: const EdgeInsets.only(bottom: 20, top: 4),
-            child: Text(
-              'Block Trace',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: isCompact ? 14 : 16,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
+            child: Row(
+              mainAxisAlignment: isCompact ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Block Trace',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: isCompact ? 14 : 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                if (!isCompact)
+                  _NodeStatusButton(onTap: () => _switchSection(_MacSection.settings)),
+              ],
             ),
           ),
           const SizedBox(height: 8),
@@ -129,16 +139,16 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
+            child: FilledButton.icon(
               onPressed: _handleCreate,
-              style: OutlinedButton.styleFrom(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF4A6CF7),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                textStyle: const TextStyle(fontSize: 12),
+                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
-              icon: const Icon(Icons.add, size: 14),
+              icon: const Icon(Icons.add, size: 16),
               label: const Text('新建'),
             ),
           ),
@@ -167,6 +177,13 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(isCompact ? 20 : 28),
         color: const Color(0xFFF5F6FA),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(-4, 0),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(isCompact ? 20 : 28),
@@ -238,7 +255,7 @@ class _TimelineContentState extends State<_TimelineContent> {
           onRefresh: provider.refresh,
           child: ListView.builder(
             controller: _scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 100),
             itemCount: provider.blocks.length + (provider.hasMore ? 1 : 0),
             itemBuilder: (context, index) {
               if (index == provider.blocks.length) {
