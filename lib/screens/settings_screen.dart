@@ -3,47 +3,52 @@ import 'about_screen.dart';
 import 'setup_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  final bool isEmbedded;
+  const SettingsScreen({super.key, this.isEmbedded = false});
 
   @override
   Widget build(BuildContext context) {
+    final content = ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      children: [
+        _SectionLabel(label: '连接'),
+        _SettingsTile(
+          icon: Icons.dns_rounded,
+          iconColor: const Color(0xFF4A6CF7),
+          label: '节点设置',
+          subtitle: '管理 Block 节点与 IPFS 连接',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SetupScreen()),
+          ),
+        ),
+        const SizedBox(height: 20),
+        _SectionLabel(label: '其他'),
+        _SettingsTile(
+          icon: Icons.info_outline_rounded,
+          iconColor: const Color(0xFF6A3DE8),
+          label: '关于',
+          subtitle: 'Block Trace · Derek X',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AboutScreen()),
+          ),
+        ),
+      ],
+    );
+
+    if (isEmbedded) {
+      return content;
+    }
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
         backgroundColor: const Color(0xFFF5F6FA),
         surfaceTintColor: const Color(0xFFF5F6FA),
         elevation: 0,
-        title: const Text('设置',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        title: const Text('设置', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          _SectionLabel(label: '连接'),
-          _SettingsTile(
-            icon: Icons.dns_rounded,
-            iconColor: const Color(0xFF4A6CF7),
-            label: '节点设置',
-            subtitle: '管理 Block 节点与 IPFS 连接',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SetupScreen()),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _SectionLabel(label: '其他'),
-          _SettingsTile(
-            icon: Icons.info_outline_rounded,
-            iconColor: const Color(0xFF6A3DE8),
-            label: '关于',
-            subtitle: 'Block Trace · Derek X',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AboutScreen()),
-            ),
-          ),
-        ],
-      ),
+      body: content,
     );
   }
 }

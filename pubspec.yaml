@@ -40,6 +40,7 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
   url_launcher: ^6.3.1
+  window_manager: ^0.4.3
   block_flutter:
     git:
       url: https://github.com/derek44554/block_flutter.git

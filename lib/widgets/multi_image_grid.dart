@@ -17,9 +17,13 @@ class MultiImageGrid extends StatelessWidget {
     this.singleAspectRatio = 4 / 3,
   });
 
-  int get _count => imageMetas.isNotEmpty ? imageMetas.length : imageUrls.length;
+  static const int _maxDisplay = 4;
+
+  int get _totalCount => imageMetas.isNotEmpty ? imageMetas.length : imageUrls.length;
+  int get _count => _totalCount.clamp(0, _maxDisplay);
 
   Widget _img(int index) {
+    if (index >= _maxDisplay) return _placeholder();
     if (imageMetas.isNotEmpty && imageService != null) {
       final meta = imageMetas[index];
       return TraceImage(
@@ -83,8 +87,8 @@ class MultiImageGrid extends StatelessWidget {
       );
     }
 
-    // 4张及以上
-    final displayCount = count > 4 ? 4 : count;
+    // 4张及以上（最多显示4张，多余的不加载）
+    final total = _totalCount;
     return AspectRatio(
       aspectRatio: 1,
       child: GridView.builder(
@@ -95,9 +99,9 @@ class MultiImageGrid extends StatelessWidget {
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
-        itemCount: displayCount,
+        itemCount: count,
         itemBuilder: (context, index) {
-          final isLast = index == 3 && count > 4;
+          final isLast = index == 3 && total > 4;
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -106,7 +110,7 @@ class MultiImageGrid extends StatelessWidget {
                 Container(
                   color: Colors.black.withValues(alpha: 0.5),
                   child: Center(
-                    child: Text('+${count - 3}',
+                    child: Text('+${total - 3}',
                         style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
