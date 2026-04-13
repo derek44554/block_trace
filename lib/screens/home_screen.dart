@@ -43,6 +43,7 @@ class _MacHomeScreen extends StatefulWidget {
 
 class _MacHomeScreenState extends State<_MacHomeScreen> {
   _MacSection _activeSection = _MacSection.timeline;
+  final _contentNavKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -158,13 +159,19 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
   }
 
   void _switchSection(_MacSection section) {
-    if (_activeSection == section) return;
+    if (_activeSection == section) {
+      _contentNavKey.currentState?.popUntil((route) => route.isFirst);
+      return;
+    }
+    // 切换前重置导航栈，避免闪烁
+    _contentNavKey.currentState?.popUntil((route) => route.isFirst);
     setState(() => _activeSection = section);
   }
 
   Future<void> _handleCreate() async {
+    final contextToUse = _contentNavKey.currentContext ?? context;
     final result = await Navigator.push<bool>(
-      context,
+      contextToUse,
       MaterialPageRoute(builder: (_) => const EditScreen()),
     );
     if (result == true && mounted) {
@@ -187,7 +194,15 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(isCompact ? 20 : 28),
-        child: _buildSectionContent(),
+        child: Navigator(
+          key: _contentNavKey,
+          onGenerateRoute: (settings) => MaterialPageRoute(
+            builder: (_) => KeyedSubtree(
+              key: ValueKey(_activeSection),
+              child: _buildSectionContent(),
+            ),
+          ),
+        ),
       ),
     );
   }
