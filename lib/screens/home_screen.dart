@@ -53,11 +53,25 @@ class _MacHomeScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                DragToMoveArea(
-                  child: SizedBox(
-                    width: menuWidth,
-                    child: _MacSidebar(isCompact: isCompact),
-                  ),
+                // macOS traffic lights spacer + sidebar
+                Column(
+                  children: [
+                    // Traffic lights spacer at top
+                    Container(
+                      width: double.infinity,
+                      height: 28,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.only(left: 16),
+                      child: const _MacTrafficLights(),
+                    ),
+                    // Sidebar
+                    Expanded(
+                      child: SizedBox(
+                        width: menuWidth,
+                        child: _MacSidebar(isCompact: isCompact),
+                      ),
+                    ),
+                  ],
                 ),
                 SizedBox(width: isCompact ? 8 : 12),
                 Expanded(child: _MacContentArea(isCompact: isCompact)),
@@ -71,18 +85,76 @@ class _MacHomeScreen extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
+// macOS Traffic Lights (自定义)
+// ─────────────────────────────────────────────────────────────
+
+class _MacTrafficLights extends StatelessWidget {
+  const _MacTrafficLights();
+
+  @override
+  Widget build(BuildContext context) {
+    return DragToMoveArea(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _TrafficLight(color: const Color(0xFFFF5F57), onTap: () => windowManager.close()),
+          const SizedBox(width: 8),
+          _TrafficLight(color: const Color(0xFFFFCC00), onTap: () => windowManager.minimize()),
+          const SizedBox(width: 8),
+          _TrafficLight(color: const Color(0xFF28C840), onTap: () => windowManager.maximize()),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrafficLight extends StatelessWidget {
+  final Color color;
+  final VoidCallback onTap;
+
+  const _TrafficLight({required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // macOS 侧边栏：全部 + 标签列表 + 设置
 // ─────────────────────────────────────────────────────────────
 
-class _MacSidebar extends StatelessWidget {
+class _MacSidebar extends StatefulWidget {
   final bool isCompact;
 
   const _MacSidebar({required this.isCompact});
 
   @override
+  State<_MacSidebar> createState() => _MacSidebarState();
+}
+
+class _MacSidebarState extends State<_MacSidebar> {
+  @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(6, isCompact ? 8 : 8, 6, isCompact ? 6 : 8),
+      padding: EdgeInsets.fromLTRB(6, widget.isCompact ? 4 : 4, 6, widget.isCompact ? 6 : 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         color: Colors.white.withValues(alpha: 0.05),
@@ -90,33 +162,48 @@ class _MacSidebar extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // 标题
+          // 痕迹标签区域
           Padding(
-            padding: const EdgeInsets.only(bottom: 8, top: 4),
+            padding: const EdgeInsets.only(bottom: 4),
             child: Row(
-              mainAxisAlignment: isCompact ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Block Trace',
+                const Text(
+                  '痕迹',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    fontSize: isCompact ? 14 : 16,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.3,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white54,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _showAddTagDialog,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(
+                      Icons.add_rounded,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 4),
 
-          // 全部按钮
+          // 全部痕迹按钮
           _MacSidebarItem(
             icon: Icons.all_inclusive_rounded,
-            label: '全部',
+            label: '全部痕迹',
             isAll: true,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
 
           // 标签列表（可滚动）
           Expanded(
@@ -138,8 +225,6 @@ class _MacSidebar extends StatelessWidget {
             ),
           ),
 
-          // 添加标签按钮
-          const _MacAddTagButton(),
           const SizedBox(height: 6),
 
           // 分隔线
@@ -154,6 +239,44 @@ class _MacSidebar extends StatelessWidget {
             icon: Icons.settings_outlined,
             label: '设置',
             isSettings: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddTagDialog() {
+    final ctrl = TextEditingController();
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('添加标签'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '输入标签名称',
+            prefixText: '# ',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onSubmitted: (v) {
+            context.read<TagProvider>().addTag(v);
+            Navigator.pop(context);
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消')),
+          FilledButton(
+            onPressed: () {
+              context.read<TagProvider>().addTag(ctrl.text);
+              Navigator.pop(context);
+            },
+            child: const Text('添加'),
           ),
         ],
       ),
