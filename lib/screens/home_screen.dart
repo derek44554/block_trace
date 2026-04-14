@@ -39,31 +39,32 @@ class _MacHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A2E),
-      body: SafeArea(
-        top: true,
-        bottom: false,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isCompact = constraints.maxWidth < 900;
-            final menuWidth = isCompact ? 160.0 : 200.0;
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 900;
+          final menuWidth = isCompact ? 160.0 : 200.0;
 
-            return Padding(
-              padding: EdgeInsets.all(isCompact ? 8 : 12),
-              child: Row(
-                children: [
-                  DragToMoveArea(
-                    child: SizedBox(
-                      width: menuWidth,
-                      child: _MacSidebar(isCompact: isCompact),
-                    ),
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              isCompact ? 4 : 6,
+              6,
+              isCompact ? 4 : 6,
+              isCompact ? 4 : 6,
+            ),
+            child: Row(
+              children: [
+                DragToMoveArea(
+                  child: SizedBox(
+                    width: menuWidth,
+                    child: _MacSidebar(isCompact: isCompact),
                   ),
-                  SizedBox(width: isCompact ? 10 : 16),
-                  Expanded(child: _MacContentArea(isCompact: isCompact)),
-                ],
-              ),
-            );
-          },
-        ),
+                ),
+                SizedBox(width: isCompact ? 8 : 12),
+                Expanded(child: _MacContentArea(isCompact: isCompact)),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -81,9 +82,9 @@ class _MacSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(8, isCompact ? 36 : 36, 8, isCompact ? 8 : 12),
+      padding: EdgeInsets.fromLTRB(6, isCompact ? 8 : 8, 6, isCompact ? 6 : 8),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         color: Colors.white.withValues(alpha: 0.05),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
@@ -91,7 +92,7 @@ class _MacSidebar extends StatelessWidget {
         children: [
           // 标题
           Padding(
-            padding: const EdgeInsets.only(bottom: 12, top: 4),
+            padding: const EdgeInsets.only(bottom: 8, top: 4),
             child: Row(
               mainAxisAlignment: isCompact ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
               children: [
@@ -562,13 +563,13 @@ class _MacContentArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(isCompact ? 20 : 28),
+        borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
         color: const Color(0xFFF5F6FA),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(-4, 0),
+            color: Colors.black12,
+            blurRadius: 8,
+            offset: Offset(-2, 0),
           ),
         ],
       ),
