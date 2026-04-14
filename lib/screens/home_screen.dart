@@ -250,6 +250,16 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
     );
   }
+
+  Future<void> _handleCreate(BuildContext context) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const EditScreen()),
+    );
+    if (result == true) {
+      context.read<TraceProvider>().refresh();
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -673,16 +683,6 @@ class _MacContentArea extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _handleCreate(BuildContext context) async {
-    final result = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(builder: (_) => const EditScreen()),
-    );
-    if (result == true) {
-      context.read<TraceProvider>().refresh();
-    }
   }
 }
 
