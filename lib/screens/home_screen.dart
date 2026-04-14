@@ -53,10 +53,12 @@ class _MacHomeScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // Sidebar
-                SizedBox(
-                  width: menuWidth,
-                  child: _MacSidebar(isCompact: isCompact),
+                // Sidebar (draggable area)
+                DragToMoveArea(
+                  child: SizedBox(
+                    width: menuWidth,
+                    child: _MacSidebar(isCompact: isCompact),
+                  ),
                 ),
                 SizedBox(width: isCompact ? 8 : 12),
                 Expanded(child: _MacContentArea(isCompact: isCompact)),
@@ -64,59 +66,6 @@ class _MacHomeScreen extends StatelessWidget {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// macOS Traffic Lights (自定义)
-// ─────────────────────────────────────────────────────────────
-
-class _MacTrafficLights extends StatelessWidget {
-  const _MacTrafficLights();
-
-  @override
-  Widget build(BuildContext context) {
-    return DragToMoveArea(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _TrafficLight(color: const Color(0xFFFF5F57), onTap: () => windowManager.close()),
-          const SizedBox(width: 8),
-          _TrafficLight(color: const Color(0xFFFFCC00), onTap: () => windowManager.minimize()),
-          const SizedBox(width: 8),
-          _TrafficLight(color: const Color(0xFF28C840), onTap: () => windowManager.maximize()),
-        ],
-      ),
-    );
-  }
-}
-
-class _TrafficLight extends StatelessWidget {
-  final Color color;
-  final VoidCallback onTap;
-
-  const _TrafficLight({required this.color, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 12,
-        height: 12,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 2,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -147,17 +96,9 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
       child: Column(
         children: [
-          // Traffic Lights
-          Row(
-            children: const [
-              _MacTrafficLights(),
-            ],
-          ),
-          const SizedBox(height: 12),
-
           // 痕迹 + 添加按钮
           Padding(
-            padding: const EdgeInsets.only(bottom: 4),
+            padding: const EdgeInsets.only(bottom: 4, top: 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
