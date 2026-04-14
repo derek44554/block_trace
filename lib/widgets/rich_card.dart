@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/block_item.dart';
 import '../services/image_service.dart';
-import 'multi_image_grid.dart';
+import 'horizontal_image_row.dart';
+import 'timeline_card_theme.dart';
 
 class RichCard extends StatelessWidget {
   final BlockItem item;
@@ -12,35 +13,21 @@ class RichCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      decoration: TimelineCardTheme.cardDecoration(),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (item.imageMetas.isNotEmpty)
-            MultiImageGrid(
-              imageMetas: item.imageMetas,
-              imageService: imageService,
-              singleAspectRatio: 16 / 9,
-            )
-          else if (item.imageUrls.isNotEmpty)
-            MultiImageGrid(
-              imageUrls: item.imageUrls,
-              singleAspectRatio: 16 / 9,
+          if (item.imageMetas.isNotEmpty || item.imageUrls.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              child: HorizontalImageRow(
+                imageMetas: item.imageMetas,
+                imageUrls: item.imageUrls,
+                imageService: imageService,
+                height: 122,
+                tileWidth: 152,
+              ),
             ),
 
           // 内容区
@@ -56,7 +43,7 @@ class RichCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: TimelineCardTheme.title,
                       height: 1.3,
                     ),
                     maxLines: 2,
@@ -70,7 +57,7 @@ class RichCard extends StatelessWidget {
                     item.content!,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Colors.white70,
+                      color: TimelineCardTheme.body,
                       height: 1.5,
                     ),
                     maxLines: 3,
@@ -94,7 +81,7 @@ class RichCard extends StatelessWidget {
                       _formatDate(item.createdAt),
                       style: const TextStyle(
                         fontSize: 11,
-                        color: Colors.white54,
+                        color: TimelineCardTheme.muted,
                       ),
                     ),
                   ],
@@ -121,15 +108,12 @@ class _TagChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: const Color(0xFF4A6CF7).withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(20),
-      ),
+      decoration: TimelineCardTheme.chipDecoration(),
       child: Text(
         '# $label',
         style: const TextStyle(
           fontSize: 11,
-          color: Colors.white,
+          color: TimelineCardTheme.chipText,
           fontWeight: FontWeight.w500,
         ),
       ),

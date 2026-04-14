@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/block_item.dart';
 import '../services/image_service.dart';
+import 'timeline_card_theme.dart';
 
 class GpsCard extends StatelessWidget {
   final BlockItem item;
@@ -11,21 +12,7 @@ class GpsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.1),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+      decoration: TimelineCardTheme.cardDecoration(),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -33,7 +20,7 @@ class GpsCard extends StatelessWidget {
           // 地图占位区域
           Container(
             height: 130,
-            color: const Color(0xFF2A2A4A),
+            color: TimelineCardTheme.mapSurface,
             child: Stack(
               children: [
                 CustomPaint(
@@ -48,11 +35,11 @@ class GpsCard extends StatelessWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4A6CF7),
+                          color: TimelineCardTheme.accent,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4A6CF7).withValues(alpha: 0.4),
+                              color: TimelineCardTheme.accent.withValues(alpha: 0.38),
                               blurRadius: 12,
                               spreadRadius: 2,
                             ),
@@ -66,7 +53,7 @@ class GpsCard extends StatelessWidget {
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4A6CF7).withValues(alpha: 0.3),
+                          color: TimelineCardTheme.accentSoft.withValues(alpha: 0.28),
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -81,21 +68,25 @@ class GpsCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.5),
+                      color: const Color(0xFF0E1524).withValues(alpha: 0.84),
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        width: 0.8,
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(Icons.my_location_rounded,
-                            size: 11, color: Colors.white70),
+                            size: 11, color: TimelineCardTheme.body),
                         const SizedBox(width: 4),
                         Text(
                           '${item.lat?.toStringAsFixed(5) ?? '--'}, ${item.lng?.toStringAsFixed(5) ?? '--'}',
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: Colors.white70,
+                            color: TimelineCardTheme.body,
                             fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
@@ -120,7 +111,7 @@ class GpsCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                      color: TimelineCardTheme.title,
                       height: 1.3,
                     ),
                     maxLines: 1,
@@ -135,7 +126,7 @@ class GpsCard extends StatelessWidget {
                     item.content!,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Colors.white70,
+                      color: TimelineCardTheme.body,
                       height: 1.5,
                     ),
                     maxLines: 2,
@@ -162,7 +153,7 @@ class GpsCard extends StatelessWidget {
                     Text(
                       _formatTime(item.createdAt),
                       style: const TextStyle(
-                          fontSize: 11, color: Colors.white54),
+                          fontSize: 11, color: TimelineCardTheme.muted),
                     ),
                   ],
                 ),
@@ -186,15 +177,12 @@ class _TagChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: const Color(0xFF4A6CF7).withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(20),
-      ),
+      decoration: TimelineCardTheme.chipDecoration(),
       child: Text(
         '# $label',
         style: const TextStyle(
           fontSize: 11,
-          color: Colors.white,
+          color: TimelineCardTheme.chipText,
           fontWeight: FontWeight.w500,
         ),
       ),
@@ -206,7 +194,7 @@ class _MapGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
+      ..color = Colors.white.withValues(alpha: 0.06)
       ..strokeWidth = 0.8;
     const step = 24.0;
     for (double x = 0; x < size.width; x += step) {

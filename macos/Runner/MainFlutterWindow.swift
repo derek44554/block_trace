@@ -15,6 +15,26 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
+    DispatchQueue.main.async { [weak self] in
+      self?.shiftTrafficLights()
+    }
+
     super.awakeFromNib()
+  }
+
+  private func shiftTrafficLights() {
+    let xOffset: CGFloat = 8
+    let yOffset: CGFloat = -3
+
+    [self.standardWindowButton(.closeButton),
+     self.standardWindowButton(.miniaturizeButton),
+     self.standardWindowButton(.zoomButton)]
+      .compactMap { $0 }
+      .forEach { button in
+        var frame = button.frame
+        frame.origin.x += xOffset
+        frame.origin.y += yOffset
+        button.frame = frame
+      }
   }
 }

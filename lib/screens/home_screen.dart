@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:ui';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:block_flutter/block_flutter.dart';
@@ -12,8 +13,10 @@ import '../services/image_service.dart';
 import '../widgets/gps_card.dart';
 import '../widgets/image_card.dart';
 import '../widgets/rich_card.dart';
+import 'about_screen.dart';
 import 'detail_screen.dart';
 import 'edit_screen.dart';
+import 'setup_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -32,8 +35,47 @@ class HomeScreen extends StatelessWidget {
 // macOS 版本：左侧标签筛选 + 右侧内容
 // ─────────────────────────────────────────────────────────────
 
-class _MacHomeScreen extends StatelessWidget {
+class _MacHomeScreen extends StatefulWidget {
   const _MacHomeScreen();
+
+  @override
+  State<_MacHomeScreen> createState() => _MacHomeScreenState();
+}
+
+class _MacHomeScreenState extends State<_MacHomeScreen> {
+  final GlobalKey<NavigatorState> _contentNavigatorKey =
+      GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _overviewNavigatorKey =
+      GlobalKey<NavigatorState>();
+  _SidebarView _view = _SidebarView.timeline;
+
+  Future<void> _openCreate() async {
+    final result = await _contentNavigatorKey.currentState?.push<bool>(
+      MaterialPageRoute(builder: (_) => const EditScreen()),
+    );
+    if (result == true && mounted) {
+      context.read<TraceProvider>().refresh();
+    }
+  }
+
+  void _openDetail(BlockModel block) {
+    final imageService = TraceImageService(context.read<ConnectionProvider>());
+    _contentNavigatorKey.currentState?.push(
+      MaterialPageRoute(
+        builder: (_) => DetailScreen(block: block, imageService: imageService),
+      ),
+    );
+  }
+
+  void _openOverview() {
+    setState(() => _view = _SidebarView.overview);
+    _overviewNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
+
+  void _showTimeline() {
+    setState(() => _view = _SidebarView.timeline);
+    _contentNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,11 +99,25 @@ class _MacHomeScreen extends StatelessWidget {
                 DragToMoveArea(
                   child: SizedBox(
                     width: menuWidth,
-                    child: _MacSidebar(isCompact: isCompact),
+                    child: _MacSidebar(
+                      isCompact: isCompact,
+                      currentView: _view,
+                      onCreate: _openCreate,
+                      onOverview: _openOverview,
+                      onShowTimeline: _showTimeline,
+                    ),
                   ),
                 ),
                 SizedBox(width: isCompact ? 8 : 12),
-                Expanded(child: _MacContentArea(isCompact: isCompact)),
+                Expanded(
+                  child: _MacContentArea(
+                    isCompact: isCompact,
+                    currentView: _view,
+                    overviewNavigatorKey: _overviewNavigatorKey,
+                    navigatorKey: _contentNavigatorKey,
+                    onOpenDetail: _openDetail,
+                  ),
+                ),
               ],
             ),
           );
@@ -71,14 +127,26 @@ class _MacHomeScreen extends StatelessWidget {
   }
 }
 
+enum _SidebarView { timeline, overview }
+
 // ─────────────────────────────────────────────────────────────
 // macOS 侧边栏：全部 + 标签列表 + 设置
 // ─────────────────────────────────────────────────────────────
 
 class _MacSidebar extends StatefulWidget {
   final bool isCompact;
+  final _SidebarView currentView;
+  final Future<void> Function() onCreate;
+  final VoidCallback onOverview;
+  final VoidCallback onShowTimeline;
 
-  const _MacSidebar({required this.isCompact});
+  const _MacSidebar({
+    required this.isCompact,
+    required this.currentView,
+    required this.onCreate,
+    required this.onOverview,
+    required this.onShowTimeline,
+  });
 
   @override
   State<_MacSidebar> createState() => _MacSidebarState();
@@ -88,7 +156,12 @@ class _MacSidebarState extends State<_MacSidebar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(6, widget.isCompact ? 4 : 4, 6, widget.isCompact ? 6 : 8),
+      padding: EdgeInsets.fromLTRB(
+        6,
+        widget.isCompact ? 4 : 4,
+        6,
+        widget.isCompact ? 6 : 8,
+      ),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         color: Colors.white.withValues(alpha: 0.05),
@@ -97,10 +170,17 @@ class _MacSidebarState extends State<_MacSidebar> {
       child: Column(
         children: [
           // 占位空布局 - 调整系统按钮位置
-          const SizedBox(height: 16),
+          const SizedBox(height: 28),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _OverviewCard(
+              onTap: widget.onOverview,
+              selected: widget.currentView == _SidebarView.overview,
+            ),
+          ),
           // 痕迹 + 添加按钮
           Padding(
-            padding: const EdgeInsets.only(bottom: 4, top: 4),
+            padding: const EdgeInsets.only(bottom: 4, top: 0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -139,6 +219,9 @@ class _MacSidebarState extends State<_MacSidebar> {
             icon: Icons.all_inclusive_rounded,
             label: '全部痕迹',
             isAll: true,
+            selected: widget.currentView == _SidebarView.timeline &&
+                context.watch<TraceProvider>().activeTag == null,
+            onAfterSelect: widget.onShowTimeline,
           ),
           const SizedBox(height: 2),
 
@@ -155,7 +238,12 @@ class _MacSidebarState extends State<_MacSidebar> {
                   itemCount: tags.length,
                   itemBuilder: (context, index) {
                     final tag = tags[index];
-                    return _MacTagItem(tag: tag);
+                    return _MacTagItem(
+                      tag: tag,
+                      selected: widget.currentView == _SidebarView.timeline &&
+                          context.watch<TraceProvider>().activeTag == tag,
+                      onAfterSelect: widget.onShowTimeline,
+                    );
                   },
                 );
               },
@@ -167,47 +255,87 @@ class _MacSidebarState extends State<_MacSidebar> {
           // 发布按钮
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: Material(
-              color: const Color(0xFF4A6CF7),
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => _handleCreate(context),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.add_rounded, size: 16, color: Colors.white),
-                      SizedBox(width: 6),
-                      Text(
-                        '发布',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: widget.onCreate,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 11,
                       ),
-                    ],
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          width: 1,
+                        ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.18),
+                            Colors.white.withValues(alpha: 0.06),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.20),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                          BoxShadow(
+                            color: const Color(0xFF4A6CF7).withValues(alpha: 0.10),
+                            blurRadius: 18,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(7),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.10),
+                                width: 1,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.add_rounded,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '发布',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
 
-          // 分隔线
-          Container(
-            height: 1,
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            color: Colors.white.withValues(alpha: 0.08),
-          ),
-
-          // 设置按钮
-          _MacSidebarItem(
-            icon: Icons.settings_outlined,
-            label: '设置',
-            isSettings: true,
-          ),
         ],
       ),
     );
@@ -218,8 +346,7 @@ class _MacSidebarState extends State<_MacSidebar> {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('添加标签'),
         content: TextField(
           controller: ctrl,
@@ -237,8 +364,9 @@ class _MacSidebarState extends State<_MacSidebar> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           FilledButton(
             onPressed: () {
               context.read<TagProvider>().addTag(ctrl.text);
@@ -250,15 +378,292 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
     );
   }
+}
 
-  Future<void> _handleCreate(BuildContext context) async {
-    final result = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(builder: (_) => const EditScreen()),
+class _OverviewCard extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool selected;
+
+  const _OverviewCard({required this.onTap, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: selected
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF7278FF), Color(0xFF8A5DF1)],
+                  )
+                : const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF5E62C8), Color(0xFF755DB5)],
+                  ),
+            border: Border.all(
+              color: selected
+                  ? Colors.white.withValues(alpha: 0.42)
+                  : Colors.white.withValues(alpha: 0.06),
+              width: 1.1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF5660FF).withValues(alpha: 0.32),
+                      blurRadius: 22,
+                      offset: const Offset(0, 10),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '概括',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    selected ? '当前正在查看' : '点击查看入口面板',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              if (selected)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: const Text(
+                      '选中',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (result == true) {
-      context.read<TraceProvider>().refresh();
-    }
+  }
+}
+
+class _OverviewPlaceholderPage extends StatelessWidget {
+  const _OverviewPlaceholderPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1A1A2E),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -40,
+            top: -40,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF6C70FF).withValues(alpha: 0.18),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: -30,
+            bottom: -50,
+            child: Container(
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF8A5DF1).withValues(alpha: 0.14),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 34, 28, 28),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '概括',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '把常用入口放在这里，右侧内容区保持专注。',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.62),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  _OverviewEntryTile(
+                    icon: Icons.dns_rounded,
+                    accent: const Color(0xFF4A6CF7),
+                    title: '节点设置',
+                    subtitle: '管理 Block 节点与 IPFS 连接',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SetupScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _OverviewEntryTile(
+                    icon: Icons.info_outline_rounded,
+                    accent: const Color(0xFF8A5DF1),
+                    title: '关于',
+                    subtitle: '版本、作者与项目说明',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AboutScreen()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewEntryTile extends StatelessWidget {
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _OverviewEntryTile({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            color: Colors.white.withValues(alpha: 0.06),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, size: 22, color: accent),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Colors.white.withValues(alpha: 0.68),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: Colors.white.withValues(alpha: 0.38),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -270,20 +675,19 @@ class _MacSidebarItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isAll;
-  final bool isSettings;
+  final bool selected;
+  final VoidCallback? onAfterSelect;
 
   const _MacSidebarItem({
     required this.icon,
     required this.label,
     this.isAll = false,
-    this.isSettings = false,
+    this.selected = false,
+    this.onAfterSelect,
   });
 
   @override
   Widget build(BuildContext context) {
-    final activeTag = context.watch<TraceProvider>().activeTag;
-    final isSelected = isAll && activeTag == null;
-
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -292,15 +696,14 @@ class _MacSidebarItem extends StatelessWidget {
         onTap: () {
           if (isAll) {
             context.read<TraceProvider>().setTag(null);
-          } else if (isSettings) {
-            _openSettings(context);
+            onAfterSelect?.call();
           }
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: isSelected
+            color: selected
                 ? const Color(0xFF4A6CF7).withValues(alpha: 0.15)
                 : Colors.transparent,
           ),
@@ -309,7 +712,7 @@ class _MacSidebarItem extends StatelessWidget {
               Icon(
                 icon,
                 size: 18,
-                color: isSelected
+                color: selected
                     ? const Color(0xFF4A6CF7)
                     : Colors.white.withValues(alpha: 0.6),
               ),
@@ -319,64 +722,13 @@ class _MacSidebarItem extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                    color: isSelected
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected
                         ? const Color(0xFF4A6CF7)
                         : Colors.white.withValues(alpha: 0.8),
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openSettings(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(40),
-        child: Container(
-          width: 600,
-          height: 500,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F6FA),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            children: [
-              // 标题栏
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
-                decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFE0E0E0), width: 1),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      '设置',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A1A2E),
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              // 设置内容
-              const Expanded(child: SettingsScreen(isEmbedded: true)),
             ],
           ),
         ),
@@ -391,30 +743,34 @@ class _MacSidebarItem extends StatelessWidget {
 
 class _MacTagItem extends StatelessWidget {
   final String tag;
+  final bool selected;
+  final VoidCallback? onAfterSelect;
 
-  const _MacTagItem({required this.tag});
+  const _MacTagItem({
+    required this.tag,
+    required this.selected,
+    this.onAfterSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final activeTag = context.watch<TraceProvider>().activeTag;
-    final isSelected = activeTag == tag;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
-        child: InkWell(
+          child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () {
-            context.read<TraceProvider>().setTag(isSelected ? null : tag);
+            context.read<TraceProvider>().setTag(selected ? null : tag);
+            onAfterSelect?.call();
           },
           onLongPress: () => _showTagOptions(context),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              color: isSelected
+              color: selected
                   ? const Color(0xFF4A6CF7).withValues(alpha: 0.15)
                   : Colors.transparent,
             ),
@@ -424,7 +780,7 @@ class _MacTagItem extends StatelessWidget {
                   width: 26,
                   height: 26,
                   decoration: BoxDecoration(
-                    color: isSelected
+                    color: selected
                         ? const Color(0xFF4A6CF7)
                         : const Color(0xFFF0F2FF),
                     borderRadius: BorderRadius.circular(8),
@@ -432,7 +788,7 @@ class _MacTagItem extends StatelessWidget {
                   child: Icon(
                     Icons.label_rounded,
                     size: 14,
-                    color: isSelected ? Colors.white : const Color(0xFF4A6CF7),
+                    color: selected ? Colors.white : const Color(0xFF4A6CF7),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -441,8 +797,10 @@ class _MacTagItem extends StatelessWidget {
                     '# $tag',
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                      color: isSelected
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                      color: selected
                           ? const Color(0xFF4A6CF7)
                           : Colors.white.withValues(alpha: 0.8),
                     ),
@@ -450,7 +808,7 @@ class _MacTagItem extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (isSelected)
+                if (selected)
                   const Icon(
                     Icons.check_rounded,
                     size: 16,
@@ -487,7 +845,10 @@ class _MacTagItem extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
                 child: Text(
                   '# $tag',
                   style: const TextStyle(
@@ -657,8 +1018,18 @@ class _MacAddTagButton extends StatelessWidget {
 
 class _MacContentArea extends StatelessWidget {
   final bool isCompact;
+  final _SidebarView currentView;
+  final GlobalKey<NavigatorState> overviewNavigatorKey;
+  final GlobalKey<NavigatorState> navigatorKey;
+  final ValueChanged<BlockModel> onOpenDetail;
 
-  const _MacContentArea({required this.isCompact});
+  const _MacContentArea({
+    required this.isCompact,
+    required this.currentView,
+    required this.overviewNavigatorKey,
+    required this.navigatorKey,
+    required this.onOpenDetail,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -666,19 +1037,40 @@ class _MacContentArea extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
         color: Colors.transparent,
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: Colors.black12,
+            color: Colors.black.withValues(alpha: 0.12),
             blurRadius: 8,
-            offset: Offset(-2, 0),
+            offset: const Offset(-2, 0),
           ),
         ],
       ),
       child: Column(
         children: [
-          // 列表
           Expanded(
-            child: _TimelineContent(isCompact: isCompact),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
+              child: IndexedStack(
+                index: currentView == _SidebarView.overview ? 0 : 1,
+                children: [
+                  Navigator(
+                    key: overviewNavigatorKey,
+                    onGenerateRoute: (_) => MaterialPageRoute(
+                      builder: (_) => const _OverviewPlaceholderPage(),
+                    ),
+                  ),
+                  Navigator(
+                    key: navigatorKey,
+                    onGenerateRoute: (_) => MaterialPageRoute(
+                      builder: (_) => _TimelineContent(
+                        isCompact: isCompact,
+                        onOpenDetail: onOpenDetail,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -692,8 +1084,9 @@ class _MacContentArea extends StatelessWidget {
 
 class _TimelineContent extends StatefulWidget {
   final bool isCompact;
+  final ValueChanged<BlockModel>? onOpenDetail;
 
-  const _TimelineContent({required this.isCompact});
+  const _TimelineContent({required this.isCompact, this.onOpenDetail});
 
   @override
   State<_TimelineContent> createState() => _TimelineContentState();
@@ -748,9 +1141,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF4A6CF7),
-                    ),
+                    child: CircularProgressIndicator(color: Color(0xFF4A6CF7)),
                   ),
                 );
               }
@@ -760,13 +1151,19 @@ class _TimelineContentState extends State<_TimelineContent> {
                 padding: const EdgeInsets.only(bottom: 14),
                 child: GestureDetector(
                   onTap: () {
-                    final imageService =
-                        TraceImageService(context.read<ConnectionProvider>());
+                    final block = provider.blocks[index];
+                    if (widget.onOpenDetail != null) {
+                      widget.onOpenDetail!(block);
+                      return;
+                    }
+                    final imageService = TraceImageService(
+                      context.read<ConnectionProvider>(),
+                    );
                     Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => DetailScreen(
-                          block: provider.blocks[index],
+                          block: block,
                           imageService: imageService,
                         ),
                       ),
@@ -838,10 +1235,7 @@ class _TimelineContentState extends State<_TimelineContent> {
             Text(
               error,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFFBBBBBB),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFFBBBBBB)),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
@@ -882,7 +1276,10 @@ class _TimelineContentState extends State<_TimelineContent> {
               ),
               if (bid.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
                   child: Text(
                     bid,
                     style: const TextStyle(
@@ -909,10 +1306,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                 ),
                 title: const Text(
                   '复制 BID',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -981,22 +1375,23 @@ class _TimelineContentState extends State<_TimelineContent> {
               Navigator.pop(context);
               if (bid.isEmpty) return;
               try {
-                final conn =
-                    context.read<ConnectionProvider>().activeConnection;
+                final conn = context
+                    .read<ConnectionProvider>()
+                    .activeConnection;
                 if (conn == null) return;
                 await BlockApi(connection: conn).deleteBlock(bid: bid);
                 await BlockCache.instance.remove(bid);
                 if (mounted) {
                   context.read<TraceProvider>().refresh();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已删除')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('已删除')));
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('删除失败：$e')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
                 }
               }
             },
@@ -1008,8 +1403,7 @@ class _TimelineContentState extends State<_TimelineContent> {
   }
 
   Widget _buildCard(BlockItem item) {
-    final imageService =
-        TraceImageService(context.read<ConnectionProvider>());
+    final imageService = TraceImageService(context.read<ConnectionProvider>());
     switch (item.type) {
       case BlockType.gps:
         return GpsCard(item: item, imageService: imageService);
@@ -1129,7 +1523,9 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
       endDrawer: const _SettingsDrawer(),
       body: Column(
         children: [
-          _HomeHeader(onNodeTap: () => _scaffoldKey.currentState?.openEndDrawer()),
+          _HomeHeader(
+            onNodeTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -1146,8 +1542,10 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                 builder: (context, provider, _) {
                   if (provider.loading && provider.blocks.isEmpty) {
                     return const Center(
-                        child: CircularProgressIndicator(
-                            color: Color(0xFF4A6CF7)));
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF4A6CF7),
+                      ),
+                    );
                   }
                   if (provider.error != null && provider.blocks.isEmpty) {
                     return _buildError(provider.error!, provider);
@@ -1168,8 +1566,10 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                           return const Padding(
                             padding: EdgeInsets.symmetric(vertical: 16),
                             child: Center(
-                                child: CircularProgressIndicator(
-                                    color: Color(0xFF4A6CF7))),
+                              child: CircularProgressIndicator(
+                                color: Color(0xFF4A6CF7),
+                              ),
+                            ),
                           );
                         }
                         final item = _blockToItem(provider.blocks[index]);
@@ -1179,7 +1579,8 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                           child: GestureDetector(
                             onTap: () {
                               final imageService = TraceImageService(
-                                  context.read<ConnectionProvider>());
+                                context.read<ConnectionProvider>(),
+                              );
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -1190,8 +1591,10 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                                 ),
                               );
                             },
-                            onLongPress: () =>
-                                _showCardOptions(context, provider.blocks[index]),
+                            onLongPress: () => _showCardOptions(
+                              context,
+                              provider.blocks[index],
+                            ),
                             child: _buildCard(item),
                           ),
                         );
@@ -1207,7 +1610,9 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           final result = await Navigator.push<bool>(
-              context, MaterialPageRoute(builder: (_) => const EditScreen()));
+            context,
+            MaterialPageRoute(builder: (_) => const EditScreen()),
+          );
           if (result == true && mounted) {
             context.read<TraceProvider>().refresh();
           }
@@ -1224,15 +1629,19 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.timeline_rounded,
-              size: 56, color: Colors.black.withValues(alpha: 0.12)),
+          Icon(
+            Icons.timeline_rounded,
+            size: 56,
+            color: Colors.black.withValues(alpha: 0.12),
+          ),
           const SizedBox(height: 16),
           const Text(
             '还没有记录',
             style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF9E9E9E)),
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF9E9E9E),
+            ),
           ),
           const SizedBox(height: 6),
           const Text(
@@ -1251,15 +1660,19 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.wifi_off_rounded,
-                size: 48, color: Colors.black.withValues(alpha: 0.15)),
+            Icon(
+              Icons.wifi_off_rounded,
+              size: 48,
+              color: Colors.black.withValues(alpha: 0.15),
+            ),
             const SizedBox(height: 16),
             const Text(
               '加载失败',
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF9E9E9E)),
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9E9E9E),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1271,9 +1684,10 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
             ),
             const SizedBox(height: 20),
             OutlinedButton.icon(
-                onPressed: provider.refresh,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('重试')),
+              onPressed: provider.refresh,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
           ],
         ),
       ),
@@ -1287,8 +1701,9 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
         decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
         child: SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1304,55 +1719,73 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
               ),
               if (bid.isNotEmpty)
                 Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 4),
-                    child: Text(
-                      bid,
-                      style: const TextStyle(
-                          fontSize: 11, color: Color(0xFF9E9E9E)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    )),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    bid,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF9E9E9E),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ListTile(
                 leading: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0F2FF),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.copy_rounded,
-                        size: 18, color: Color(0xFF4A6CF7))),
-                title: const Text('复制 BID',
-                    style: TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w500)),
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F2FF),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.copy_rounded,
+                    size: 18,
+                    color: Color(0xFF4A6CF7),
+                  ),
+                ),
+                title: const Text(
+                  '复制 BID',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   if (bid.isNotEmpty) {
                     Clipboard.setData(ClipboardData(text: bid));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content: Text('BID 已复制'),
-                          duration: Duration(seconds: 2)),
+                        content: Text('BID 已复制'),
+                        duration: Duration(seconds: 2),
+                      ),
                     );
                   }
                 },
               ),
               ListTile(
                 leading: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.delete_outline_rounded,
-                        size: 18, color: Colors.red)),
-                title: const Text('删除',
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: Colors.red)),
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.delete_outline_rounded,
+                    size: 18,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text(
+                  '删除',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.red,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _confirmDelete(context, block);
@@ -1376,30 +1809,32 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
         content: const Text('确定要删除这条记录吗？此操作不可撤销。'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(context);
               if (bid.isEmpty) return;
               try {
-                final conn =
-                    context.read<ConnectionProvider>().activeConnection;
+                final conn = context
+                    .read<ConnectionProvider>()
+                    .activeConnection;
                 if (conn == null) return;
                 await BlockApi(connection: conn).deleteBlock(bid: bid);
                 await BlockCache.instance.remove(bid);
                 if (mounted) {
                   context.read<TraceProvider>().refresh();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已删除')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('已删除')));
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('删除失败：$e')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('删除失败：$e')));
                 }
               }
             },
@@ -1411,8 +1846,7 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
   }
 
   Widget _buildCard(BlockItem item) {
-    final imageService =
-        TraceImageService(context.read<ConnectionProvider>());
+    final imageService = TraceImageService(context.read<ConnectionProvider>());
     switch (item.type) {
       case BlockType.gps:
         return GpsCard(item: item, imageService: imageService);
@@ -1502,25 +1936,34 @@ class _HomeHeader extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Block Trace',
-                  style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1A1A2E),
-                      letterSpacing: -0.5)),
+              const Text(
+                'Block Trace',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF1A1A2E),
+                  letterSpacing: -0.5,
+                ),
+              ),
               if (activeTag != null) ...[
                 const SizedBox(height: 2),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.label_rounded,
-                        size: 11, color: Color(0xFF4A6CF7)),
+                    const Icon(
+                      Icons.label_rounded,
+                      size: 11,
+                      color: Color(0xFF4A6CF7),
+                    ),
                     const SizedBox(width: 4),
-                    Text('# $activeTag',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF4A6CF7),
-                            fontWeight: FontWeight.w500)),
+                    Text(
+                      '# $activeTag',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF4A6CF7),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -1539,8 +1982,7 @@ class _NodeStatusButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final connected =
-        context.watch<ConnectionProvider>().hasActiveConnection;
+    final connected = context.watch<ConnectionProvider>().hasActiveConnection;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1553,8 +1995,12 @@ class _NodeStatusButton extends StatelessWidget {
         child: Stack(
           children: [
             const Center(
-                child: Icon(Icons.hub_rounded,
-                    size: 18, color: Color(0xFF4A6CF7))),
+              child: Icon(
+                Icons.hub_rounded,
+                size: 18,
+                color: Color(0xFF4A6CF7),
+              ),
+            ),
             Positioned(
               right: 6,
               top: 6,
@@ -1566,8 +2012,10 @@ class _NodeStatusButton extends StatelessWidget {
                       ? const Color(0xFF34C759)
                       : const Color(0xFFFF3B30),
                   shape: BoxShape.circle,
-                  border:
-                      Border.all(color: const Color(0xFFF0F2FF), width: 1.2),
+                  border: Border.all(
+                    color: const Color(0xFFF0F2FF),
+                    width: 1.2,
+                  ),
                 ),
               ),
             ),
@@ -1599,14 +2047,20 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
               padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
               child: Row(
                 children: [
-                  const Icon(Icons.label_rounded,
-                      color: Color(0xFF4A6CF7), size: 20),
+                  const Icon(
+                    Icons.label_rounded,
+                    color: Color(0xFF4A6CF7),
+                    size: 20,
+                  ),
                   const SizedBox(width: 10),
-                  const Text('标签',
-                      style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF1A1A2E))),
+                  const Text(
+                    '标签',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
                   const Spacer(),
                   IconButton(
                     icon: const Icon(Icons.add_rounded, size: 22),
@@ -1628,22 +2082,36 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.label_off_outlined,
-                              size: 40, color: Colors.black.withValues(alpha: 0.15)),
+                          Icon(
+                            Icons.label_off_outlined,
+                            size: 40,
+                            color: Colors.black.withValues(alpha: 0.15),
+                          ),
                           const SizedBox(height: 12),
-                          const Text('暂无标签',
-                              style: TextStyle(
-                                  fontSize: 14, color: Color(0xFF9E9E9E))),
+                          const Text(
+                            '暂无标签',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Color(0xFF9E9E9E),
+                            ),
+                          ),
                           const SizedBox(height: 4),
-                          const Text('点击右上角 + 添加',
-                              style: TextStyle(
-                                  fontSize: 12, color: Color(0xFFBBBBBB))),
+                          const Text(
+                            '点击右上角 + 添加',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFFBBBBBB),
+                            ),
+                          ),
                         ],
                       ),
                     );
                   }
                   return ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     itemCount: tags.length,
                     itemBuilder: (context, index) {
                       final tag = tags[index];
@@ -1652,9 +2120,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                       return _TagListTile(
                         tag: tag,
                         selected: selected,
-                        onTap: () => context
-                            .read<TraceProvider>()
-                            .setTag(selected ? null : tag),
+                        onTap: () => context.read<TraceProvider>().setTag(
+                          selected ? null : tag,
+                        ),
                         onLongPress: () => _confirmRemoveTag(context, tag),
                       );
                     },
@@ -1667,21 +2135,29 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
               onTap: () {
                 Navigator.of(context).pop();
                 Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()));
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
               },
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 child: Row(
                   children: [
-                    Icon(Icons.settings_rounded,
-                        size: 20, color: Color(0xFF9E9E9E)),
+                    Icon(
+                      Icons.settings_rounded,
+                      size: 20,
+                      color: Color(0xFF9E9E9E),
+                    ),
                     SizedBox(width: 12),
-                    Text('设置',
-                        style: TextStyle(
-                            fontSize: 14, color: Color(0xFF1A1A2E))),
+                    Text(
+                      '设置',
+                      style: TextStyle(fontSize: 14, color: Color(0xFF1A1A2E)),
+                    ),
                     Spacer(),
-                    Icon(Icons.chevron_right_rounded,
-                        size: 18, color: Color(0xFF9E9E9E)),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: Color(0xFF9E9E9E),
+                    ),
                   ],
                 ),
               ),
@@ -1697,8 +2173,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('添加标签'),
         content: TextField(
           controller: ctrl,
@@ -1716,8 +2191,9 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           FilledButton(
             onPressed: () {
               context.read<TagProvider>().addTag(ctrl.text);
@@ -1734,17 +2210,18 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('删除标签'),
         content: Text('确定要删除标签「$tag」吗？'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             onPressed: () {
               context.read<TagProvider>().removeTag(tag);
               if (context.read<TraceProvider>().activeTag == tag) {
@@ -1766,11 +2243,12 @@ class _TagListTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
-  const _TagListTile(
-      {required this.tag,
-      required this.selected,
-      required this.onTap,
-      this.onLongPress});
+  const _TagListTile({
+    required this.tag,
+    required this.selected,
+    required this.onTap,
+    this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1796,25 +2274,31 @@ class _TagListTile extends StatelessWidget {
                       : const Color(0xFFF0F2FF),
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: Icon(Icons.label_rounded,
-                    size: 16,
-                    color:
-                        selected ? Colors.white : const Color(0xFF4A6CF7)),
+                child: Icon(
+                  Icons.label_rounded,
+                  size: 16,
+                  color: selected ? Colors.white : const Color(0xFF4A6CF7),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                  child: Text('# $tag',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.normal,
-                        color: selected
-                            ? const Color(0xFF4A6CF7)
-                            : const Color(0xFF1A1A2E),
-                      ))),
+                child: Text(
+                  '# $tag',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                    color: selected
+                        ? const Color(0xFF4A6CF7)
+                        : const Color(0xFF1A1A2E),
+                  ),
+                ),
+              ),
               if (selected)
-                const Icon(Icons.check_rounded,
-                    size: 18, color: Color(0xFF4A6CF7)),
+                const Icon(
+                  Icons.check_rounded,
+                  size: 18,
+                  color: Color(0xFF4A6CF7),
+                ),
             ],
           ),
         ),
