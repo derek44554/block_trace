@@ -164,6 +164,37 @@ class _MacSidebarState extends State<_MacSidebar> {
 
           const SizedBox(height: 6),
 
+          // 发布按钮
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Material(
+              color: const Color(0xFF4A6CF7),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => _handleCreate(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.add_rounded, size: 16, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text(
+                        '发布',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           // 分隔线
           Container(
             height: 1,
@@ -624,7 +655,7 @@ class _MacContentArea extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
-        color: const Color(0xFFF5F6FA),
+        color: Colors.transparent,
         boxShadow: const [
           BoxShadow(
             color: Colors.black12,
@@ -635,90 +666,6 @@ class _MacContentArea extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // 发布按钮栏
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-            child: Row(
-              children: [
-                // 当前筛选状态
-                Consumer<TraceProvider>(
-                  builder: (context, provider, _) {
-                    final tag = provider.activeTag;
-                    if (tag != null) {
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4A6CF7).withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.label_rounded,
-                                  size: 12,
-                                  color: Color(0xFF4A6CF7),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '# $tag',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF4A6CF7),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                GestureDetector(
-                                  onTap: () => provider.setTag(null),
-                                  child: const Icon(
-                                    Icons.close_rounded,
-                                    size: 14,
-                                    color: Color(0xFF4A6CF7),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                        ],
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
-                const Spacer(),
-                // 发布按钮
-                FilledButton.icon(
-                  onPressed: () => _handleCreate(context),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF4A6CF7),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('发布'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
           // 列表
           Expanded(
             child: _TimelineContent(isCompact: isCompact),
