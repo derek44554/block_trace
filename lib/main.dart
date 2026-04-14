@@ -20,8 +20,8 @@ void main() async {
   // macOS 窗口初始化
   await windowManager.ensureInitialized();
   const options = WindowOptions(
-    size: Size(420, 820),
-    minimumSize: Size(360, 600),
+    size: Size(960, 680),
+    minimumSize: Size(800, 560),
     center: true,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,

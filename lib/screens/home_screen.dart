@@ -48,7 +48,7 @@ class _MacHomeScreen extends StatelessWidget {
             final menuWidth = isCompact ? 160.0 : 200.0;
 
             return Padding(
-              padding: EdgeInsets.all(isCompact ? 10 : 16),
+              padding: EdgeInsets.all(isCompact ? 8 : 12),
               child: Row(
                 children: [
                   DragToMoveArea(
@@ -81,7 +81,7 @@ class _MacSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.fromLTRB(12, isCompact ? 42 : 48, 12, isCompact ? 12 : 16),
+      padding: EdgeInsets.fromLTRB(8, isCompact ? 36 : 36, 8, isCompact ? 8 : 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: Colors.white.withValues(alpha: 0.05),
@@ -91,7 +91,7 @@ class _MacSidebar extends StatelessWidget {
         children: [
           // 标题
           Padding(
-            padding: const EdgeInsets.only(bottom: 20, top: 4),
+            padding: const EdgeInsets.only(bottom: 12, top: 4),
             child: Row(
               mainAxisAlignment: isCompact ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
               children: [
@@ -107,7 +107,7 @@ class _MacSidebar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // 全部按钮
           _MacSidebarItem(
@@ -139,12 +139,12 @@ class _MacSidebar extends StatelessWidget {
 
           // 添加标签按钮
           const _MacAddTagButton(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // 分隔线
           Container(
             height: 1,
-            margin: const EdgeInsets.symmetric(vertical: 8),
+            margin: const EdgeInsets.symmetric(vertical: 4),
             color: Colors.white.withValues(alpha: 0.08),
           ),
 
@@ -195,7 +195,7 @@ class _MacSidebarItem extends StatelessWidget {
           }
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             color: isSelected
@@ -309,7 +309,7 @@ class _MacTagItem extends StatelessWidget {
           },
           onLongPress: () => _showTagOptions(context),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               color: isSelected
@@ -576,7 +576,7 @@ class _MacContentArea extends StatelessWidget {
         children: [
           // 发布按钮栏
           Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
             child: Row(
               children: [
                 // 当前筛选状态
@@ -733,7 +733,7 @@ class _TimelineContentState extends State<_TimelineContent> {
           onRefresh: provider.refresh,
           child: ListView.builder(
             controller: _scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 100),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 80),
             itemCount: provider.blocks.length + (provider.hasMore ? 1 : 0),
             itemBuilder: (context, index) {
               if (index == provider.blocks.length) {
