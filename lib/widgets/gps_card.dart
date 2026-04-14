@@ -207,7 +207,7 @@ class _MapGridPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = Colors.white.withValues(alpha: 0.08)
-      ..strokeWidth: 0.8;
+      ..strokeWidth = 0.8;
     const step = 24.0;
     for (double x = 0; x < size.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
