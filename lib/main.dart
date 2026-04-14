@@ -25,12 +25,14 @@ void main() async {
     center: true,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
-    titleBarStyle: TitleBarStyle.hidden,
+    titleBarStyle: TitleBarStyle.transparent,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
     await windowManager.focus();
   });
+  // 确保系统 traffic lights 完全隐藏
+  await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
 
   runApp(const BlockTraceApp());
 }
