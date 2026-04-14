@@ -97,7 +97,7 @@ class _MacSidebarState extends State<_MacSidebar> {
       child: Column(
         children: [
           // 占位空布局 - 调整系统按钮位置
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           // 痕迹 + 添加按钮
           Padding(
             padding: const EdgeInsets.only(bottom: 4, top: 4),
