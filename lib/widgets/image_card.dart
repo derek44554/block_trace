@@ -109,9 +109,9 @@ class ImageCard extends StatelessWidget {
 
   Widget _placeholder() {
     return Container(
-      color: const Color(0xFFF0F0F5),
+      color: const Color(0xFF2A2A4A),
       child: const Center(
-        child: Icon(Icons.image_outlined, size: 48, color: Color(0xFFCCCCCC)),
+        child: Icon(Icons.image_outlined, size: 48, color: Colors.white30),
       ),
     );
   }

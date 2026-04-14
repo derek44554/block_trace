@@ -56,7 +56,7 @@ class RichCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF1A1A2E),
+                      color: Colors.white,
                       height: 1.3,
                     ),
                     maxLines: 2,
@@ -70,7 +70,7 @@ class RichCard extends StatelessWidget {
                     item.content!,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF666680),
+                      color: Colors.white70,
                       height: 1.5,
                     ),
                     maxLines: 3,
@@ -94,7 +94,7 @@ class RichCard extends StatelessWidget {
                       _formatDate(item.createdAt),
                       style: const TextStyle(
                         fontSize: 11,
-                        color: Color(0xFF9E9E9E),
+                        color: Colors.white54,
                       ),
                     ),
                   ],
@@ -122,14 +122,14 @@ class _TagChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F2FF),
+        color: const Color(0xFF4A6CF7).withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         '# $label',
         style: const TextStyle(
           fontSize: 11,
-          color: Color(0xFF4A6CF7),
+          color: Colors.white,
           fontWeight: FontWeight.w500,
         ),
       ),
