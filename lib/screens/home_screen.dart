@@ -53,25 +53,10 @@ class _MacHomeScreen extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // macOS traffic lights spacer + sidebar
-                Column(
-                  children: [
-                    // Traffic lights spacer at top
-                    Container(
-                      width: double.infinity,
-                      height: 28,
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.only(left: 16),
-                      child: const _MacTrafficLights(),
-                    ),
-                    // Sidebar
-                    Expanded(
-                      child: SizedBox(
-                        width: menuWidth,
-                        child: _MacSidebar(isCompact: isCompact),
-                      ),
-                    ),
-                  ],
+                // Sidebar
+                SizedBox(
+                  width: menuWidth,
+                  child: _MacSidebar(isCompact: isCompact),
                 ),
                 SizedBox(width: isCompact ? 8 : 12),
                 Expanded(child: _MacContentArea(isCompact: isCompact)),
@@ -162,40 +147,39 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
       child: Column(
         children: [
-          // 痕迹标签区域
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '痕迹',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white54,
-                    letterSpacing: 0.5,
+          // 痕迹标签区域 + Traffic Lights
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const _MacTrafficLights(),
+              const Text(
+                '痕迹',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white54,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              GestureDetector(
+                onTap: _showAddTagDialog,
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    Icons.add_rounded,
+                    size: 14,
+                    color: Colors.white.withValues(alpha: 0.5),
                   ),
                 ),
-                GestureDetector(
-                  onTap: _showAddTagDialog,
-                  child: Container(
-                    width: 20,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Icon(
-                      Icons.add_rounded,
-                      size: 14,
-                      color: Colors.white.withValues(alpha: 0.5),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+          const SizedBox(height: 4),
 
           // 全部痕迹按钮
           _MacSidebarItem(
