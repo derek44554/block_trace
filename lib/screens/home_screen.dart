@@ -147,37 +147,47 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
       child: Column(
         children: [
-          // 痕迹标签区域 + Traffic Lights
+          // Traffic Lights
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const _MacTrafficLights(),
-              const Text(
-                '痕迹',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white54,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              GestureDetector(
-                onTap: _showAddTagDialog,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Icon(
-                    Icons.add_rounded,
-                    size: 14,
-                    color: Colors.white.withValues(alpha: 0.5),
-                  ),
-                ),
-              ),
+            children: const [
+              _MacTrafficLights(),
             ],
+          ),
+          const SizedBox(height: 12),
+
+          // 痕迹 + 添加按钮
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '痕迹',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white54,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _showAddTagDialog,
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(
+                      Icons.add_rounded,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
 
