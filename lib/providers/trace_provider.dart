@@ -1,27 +1,30 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:block_flutter/block_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'connection_provider.dart';
 
 class TraceProvider extends ChangeNotifier {
   TraceProvider(this._connectionProvider) {
     _connectionProvider.addListener(_onConnectionChanged);
-    if (_connectionProvider.hasActiveConnection) {
-      load(refresh: true);
-    }
+    unawaited(_init());
   }
 
   final ConnectionProvider _connectionProvider;
 
   List<BlockModel> _blocks = [];
+  List<BlockModel> _localBlocks = [];
   final Map<String, Map<String, String?>> _imageBlockCache = {};
   bool _loading = false;
   bool _hasMore = true;
   String? _error;
   int _page = 1;
   String? _activeTag;
+  String? _lastConnectionAddress;
   static const _limit = 20;
   static const _traceModelId = '50f690463c297d781062c0a2ce701364';
+  static const _timelineSnapshotLastKey = 'block_trace_timeline_snapshot_last_v1';
 
   List<BlockModel> get blocks => List.unmodifiable(_blocks);
   bool get loading => _loading;
@@ -29,18 +32,46 @@ class TraceProvider extends ChangeNotifier {
   String? get error => _error;
   String? get activeTag => _activeTag;
 
+  Future<void> _init() async {
+    _lastConnectionAddress = _connectionProvider.activeConnection?.address;
+    await _restoreLocalSnapshot();
+    if (_connectionProvider.hasActiveConnection) {
+      await load(refresh: true);
+    }
+  }
+
   void setTag(String? tag) {
     if (_activeTag == tag) return;
     _activeTag = tag;
-    load(refresh: true);
+    _applyLocalFilter();
+    notifyListeners();
+    unawaited(load(refresh: true));
   }
 
   /// 根据图片 block bid 获取 cid 和 encryptionKey
   Map<String, String?>? getImageInfo(String bid) => _imageBlockCache[bid];
 
   void _onConnectionChanged() {
-    if (_connectionProvider.hasActiveConnection && _blocks.isEmpty && !_loading) {
-      load(refresh: true);
+    unawaited(_handleConnectionChanged());
+  }
+
+  Future<void> _handleConnectionChanged() async {
+    final currentAddress = _connectionProvider.activeConnection?.address;
+    final changed = currentAddress != _lastConnectionAddress;
+    if (changed) {
+      _lastConnectionAddress = currentAddress;
+      final restored = await _restoreLocalSnapshot();
+      if (!restored) {
+        _localBlocks = [];
+        _blocks = [];
+        _imageBlockCache.clear();
+        _error = null;
+        _hasMore = true;
+        notifyListeners();
+      }
+    }
+    if (_connectionProvider.hasActiveConnection && !_loading) {
+      await load(refresh: true);
     }
   }
 
@@ -98,11 +129,18 @@ class TraceProvider extends ChangeNotifier {
         _blocks.addAll(fetched);
       }
 
+      if (_activeTag == null) {
+        _localBlocks = List<BlockModel>.from(_blocks);
+      }
+
       _hasMore = fetched.length >= _limit;
       _page++;
 
       // 预加载图片 block 信息
       await _prefetchImageBlocks(fetched, api);
+      if (_activeTag == null) {
+        unawaited(_persistLocalSnapshot());
+      }
     } catch (e) {
       _error = e.toString();
       debugPrint('TraceProvider.load error: $e');
@@ -148,6 +186,107 @@ class TraceProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  void _applyLocalFilter() {
+    if (_localBlocks.isEmpty) return;
+    if (_activeTag == null) {
+      _blocks = List<BlockModel>.from(_localBlocks);
+      return;
+    }
+    _blocks = _localBlocks.where((block) {
+      final tags = block.getList<String>('tag');
+      return tags.contains(_activeTag);
+    }).toList();
+  }
+
+  String? _activeConnectionAddress() =>
+      _connectionProvider.activeConnection?.address.trim();
+
+  String _snapshotKeyForAddress(String address) {
+    final encoded = base64Url.encode(utf8.encode(address));
+    return 'block_trace_timeline_snapshot_v1_$encoded';
+  }
+
+  Future<bool> _restoreLocalSnapshot() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? raw;
+      final address = _activeConnectionAddress();
+      if (address != null && address.isNotEmpty) {
+        raw = prefs.getString(_snapshotKeyForAddress(address));
+      } else {
+        raw = prefs.getString(_timelineSnapshotLastKey);
+      }
+      if (raw == null || raw.isEmpty) return false;
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return false;
+      final blocksRaw = decoded['blocks'];
+      final imageCacheRaw = decoded['imageCache'];
+
+      final restoredBlocks = <BlockModel>[];
+      if (blocksRaw is List) {
+        for (final item in blocksRaw.whereType<Map>()) {
+          restoredBlocks.add(
+            BlockModel(data: Map<String, dynamic>.from(item)),
+          );
+        }
+      }
+      if (restoredBlocks.isEmpty) return false;
+
+      final restoredImageCache = <String, Map<String, String?>>{};
+      if (imageCacheRaw is Map) {
+        for (final entry in imageCacheRaw.entries) {
+          final key = entry.key.toString();
+          final value = entry.value;
+          if (value is Map) {
+            restoredImageCache[key] = {
+              'cid': value['cid']?.toString(),
+              'key': value['key']?.toString(),
+            };
+          }
+        }
+      }
+
+      _localBlocks = restoredBlocks;
+      _imageBlockCache
+        ..clear()
+        ..addAll(restoredImageCache);
+      _applyLocalFilter();
+      _error = null;
+      _hasMore = true;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _persistLocalSnapshot() async {
+    try {
+      if (_localBlocks.isEmpty) return;
+      final payload = jsonEncode({
+        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'blocks': _localBlocks.map((e) => e.data).toList(),
+        'imageCache': _imageBlockCache.map(
+          (k, v) => MapEntry(
+            k,
+            {
+              'cid': v['cid'],
+              'key': v['key'],
+            },
+          ),
+        ),
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final address = _activeConnectionAddress();
+      if (address != null && address.isNotEmpty) {
+        await prefs.setString(_snapshotKeyForAddress(address), payload);
+      }
+      await prefs.setString(_timelineSnapshotLastKey, payload);
+    } catch (_) {}
   }
 
   Future<void> refresh() => load(refresh: true);
