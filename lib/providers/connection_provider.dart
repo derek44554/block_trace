@@ -42,6 +42,49 @@ class ConnectionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> upsertConnection(
+    ConnectionModel connection, {
+    bool setActive = true,
+  }) async {
+    final normalizedAddress = connection.address.trim().replaceAll(RegExp(r'/+$'), '');
+    final idx = _connections.indexWhere(
+      (c) => c.address.trim().replaceAll(RegExp(r'/+$'), '') == normalizedAddress,
+    );
+
+    if (idx >= 0) {
+      _connections[idx] = connection;
+      if (setActive) {
+        _activeConnection = connection;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(_activeKey, idx);
+      }
+    } else {
+      _connections.add(connection);
+      if (setActive || _connections.length == 1) {
+        _activeConnection = connection;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(_activeKey, _connections.length - 1);
+      }
+    }
+
+    await _persist();
+    notifyListeners();
+  }
+
+  Future<void> setSingleConnection(
+    ConnectionModel connection, {
+    bool setActive = true,
+  }) async {
+    _connections = [connection];
+    if (setActive || _connections.length == 1) {
+      _activeConnection = connection;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_activeKey, 0);
+    }
+    await _persist();
+    notifyListeners();
+  }
+
   Future<void> removeConnection(int index) async {
     _connections.removeAt(index);
     final prefs = await SharedPreferences.getInstance();

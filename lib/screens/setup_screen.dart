@@ -18,13 +18,39 @@ class _SetupScreenState extends State<SetupScreen> {
   final _keyCtrl = TextEditingController();
   final _ipfsCtrl = TextEditingController();
   bool _testing = false;
+  bool _savingIpfs = false;
   bool _keyVisible = false;
   String? _testError;
+  String? _initialIpfsEndpoint;
+  String? _lastTestSignature;
+  Map<String, dynamic>? _lastTestNodeData;
 
   @override
   void initState() {
     super.initState();
-    _ipfsCtrl.text = context.read<ConnectionProvider>().ipfsEndpoint ?? '';
+    final active = context.read<ConnectionProvider>().activeConnection;
+    if (active != null) {
+      _nameCtrl.text = active.name;
+      _addressCtrl.text = active.address;
+      _keyCtrl.text = active.keyBase64;
+      _lastTestSignature =
+          '${active.address.trim().replaceAll(RegExp(r'/+$'), '')}|${active.keyBase64.trim()}';
+      _lastTestNodeData = active.nodeData;
+    }
+    _initialIpfsEndpoint = context.read<ConnectionProvider>().ipfsEndpoint ?? '';
+    _ipfsCtrl.text = _initialIpfsEndpoint!;
+    _ipfsCtrl.addListener(() => setState(() {}));
+    _addressCtrl.addListener(_invalidateNodeTestCache);
+    _keyCtrl.addListener(_invalidateNodeTestCache);
+  }
+
+  void _invalidateNodeTestCache() {
+    final sig = _nodeSignature();
+    if (_lastTestSignature != null && _lastTestSignature != sig) {
+      _lastTestSignature = null;
+      _lastTestNodeData = null;
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -36,43 +62,102 @@ class _SetupScreenState extends State<SetupScreen> {
     super.dispose();
   }
 
-  Future<void> _testAndSave() async {
+  String _normalizedAddress() =>
+      _addressCtrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+
+  String _normalizedIpfsInput() =>
+      _ipfsCtrl.text.trim().replaceAll(RegExp(r'/+$'), '');
+
+  String _nodeSignature() =>
+      '${_normalizedAddress()}|${_keyCtrl.text.trim()}';
+
+  bool _isValidIpfs(String v) {
+    if (v.trim().isEmpty) return true;
+    final u = Uri.tryParse(v.trim());
+    if (u == null) return false;
+    return u.hasScheme && (u.scheme == 'http' || u.scheme == 'https');
+  }
+
+  Future<Map<String, dynamic>> _testNodeConnection() async {
+    final connection = ConnectionModel(
+      name: _nameCtrl.text.trim(),
+      address: _normalizedAddress(),
+      keyBase64: _keyCtrl.text.trim(),
+      status: ConnectionStatus.connecting,
+    );
+
+    final api = NodeApi(connection: connection);
+    await api.getSignature();
+
+    return ApiClient(connection: connection).postToBridge(
+      protocol: 'open',
+      routing: '/node/node',
+      data: const {},
+    );
+  }
+
+  Future<void> _testNodeOnly() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _testing = true;
       _testError = null;
     });
 
-    final connection = ConnectionModel(
-      name: _nameCtrl.text.trim(),
-      address: _addressCtrl.text.trim().replaceAll(RegExp(r'/+$'), ''),
-      keyBase64: _keyCtrl.text.trim(),
-      status: ConnectionStatus.connecting,
-    );
+    try {
+      final nodeData = await _testNodeConnection();
+      _lastTestSignature = _nodeSignature();
+      _lastTestNodeData = nodeData;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('节点连接测试成功')),
+        );
+      }
+    } catch (e) {
+      setState(() => _testError = '连接失败：$e');
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  Future<void> _saveNode() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _testing = true;
+      _testError = null;
+    });
 
     try {
-      final api = NodeApi(connection: connection);
-      await api.getSignature();
+      final sig = _nodeSignature();
+      final nodeData = (_lastTestSignature == sig && _lastTestNodeData != null)
+          ? _lastTestNodeData!
+          : await _testNodeConnection();
 
-      // 获取节点信息（含 sender BID）
-      final nodeData = await ApiClient(connection: connection).postToBridge(
-        protocol: 'open',
-        routing: '/node/node',
-        data: const {},
-      );
+      _lastTestSignature = sig;
+      _lastTestNodeData = nodeData;
 
       if (!mounted) return;
       final provider = context.read<ConnectionProvider>();
-      await provider.addConnection(connection.copyWith(
+      final connection = ConnectionModel(
+        name: _nameCtrl.text.trim(),
+        address: _normalizedAddress(),
+        keyBase64: _keyCtrl.text.trim(),
         status: ConnectionStatus.connected,
         nodeData: nodeData,
-      ));
+      );
+      await provider.setSingleConnection(connection, setActive: true);
 
-      final ipfs = _ipfsCtrl.text.trim();
-      if (ipfs.isNotEmpty) await provider.setIpfsEndpoint(ipfs);
+      if (_ipfsCtrl.text.trim() != _initialIpfsEndpoint) {
+        final ipfs = _ipfsCtrl.text.trim();
+        await provider.setIpfsEndpoint(ipfs.isEmpty ? null : ipfs);
+        _initialIpfsEndpoint = ipfs;
+      }
 
-      if (!mounted) return;
-      Navigator.of(context).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('节点已保存并设为当前')),
+        );
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       setState(() => _testError = '连接失败：$e');
     } finally {
@@ -81,12 +166,27 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _saveIpfsOnly() async {
-    final ipfs = _ipfsCtrl.text.trim();
-    await context.read<ConnectionProvider>().setIpfsEndpoint(ipfs.isEmpty ? null : ipfs);
-    if (mounted) {
+    final ipfs = _normalizedIpfsInput();
+    if (!_isValidIpfs(ipfs)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('IPFS 地址已保存')),
+        const SnackBar(content: Text('IPFS 地址格式不正确，请使用 http/https')),
       );
+      return;
+    }
+    if (ipfs == (_initialIpfsEndpoint ?? '')) return;
+    setState(() => _savingIpfs = true);
+    try {
+      await context
+          .read<ConnectionProvider>()
+          .setIpfsEndpoint(ipfs.isEmpty ? null : ipfs);
+      _initialIpfsEndpoint = ipfs;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('IPFS 地址已保存')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingIpfs = false);
     }
   }
 
@@ -96,6 +196,9 @@ class _SetupScreenState extends State<SetupScreen> {
     final cs = Theme.of(context).colorScheme;
     final isMacOS = PlatformHelper.isMacOS;
     final bgColor = isMacOS ? const Color(0xFF1A1A2E) : const Color(0xFFF5F6FA);
+    final ipfsChanged = _normalizedIpfsInput() != (_initialIpfsEndpoint ?? '');
+    final ipfsConfigured = provider.ipfsEndpoint?.trim().isNotEmpty == true;
+    final active = provider.activeConnection;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -117,15 +220,84 @@ class _SetupScreenState extends State<SetupScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _StatusOverviewCard(
+              activeName: active?.name,
+              activeAddress: active?.address,
+              ipfsEndpoint: provider.ipfsEndpoint,
+            ),
+            const SizedBox(height: 14),
             // ── IPFS 地址 ──
-            _SectionLabel(label: 'IPFS 服务'),
+            _SectionLabel(label: 'IPFS 服务（可选）'),
             _Card(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _CardRow(
-                    icon: Icons.link_rounded,
-                    iconColor: cs.tertiary,
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.cloud_rounded,
+                        size: 17,
+                        color: ipfsConfigured
+                            ? const Color(0xFF8DA6FF)
+                            : (isMacOS
+                                ? const Color(0xFF95A0BD)
+                                : cs.onSurfaceVariant),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '对象存储端点',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isMacOS
+                              ? const Color(0xFFEAF0FF)
+                              : const Color(0xFF1A1A2E),
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: (ipfsConfigured
+                                  ? const Color(0xFF8DA6FF)
+                                  : (isMacOS
+                                      ? const Color(0xFF95A0BD)
+                                      : cs.onSurfaceVariant))
+                              .withValues(alpha: isMacOS ? 0.18 : 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: (ipfsConfigured
+                                    ? const Color(0xFF8DA6FF)
+                                    : (isMacOS
+                                        ? const Color(0xFF95A0BD)
+                                        : cs.onSurfaceVariant))
+                                .withValues(alpha: isMacOS ? 0.34 : 0.2),
+                          ),
+                        ),
+                        child: Text(
+                          ipfsConfigured ? '已配置' : '未配置',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: ipfsConfigured
+                                ? const Color(0xFF8DA6FF)
+                                : (isMacOS
+                                    ? const Color(0xFF95A0BD)
+                                    : cs.onSurfaceVariant),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      color: isMacOS
+                          ? Colors.white.withValues(alpha: 0.04)
+                          : Colors.black.withValues(alpha: 0.01),
+                    ),
                     child: TextField(
                       controller: _ipfsCtrl,
                       decoration: const InputDecoration(
@@ -133,16 +305,33 @@ class _SetupScreenState extends State<SetupScreen> {
                         hintText: 'http://192.168.1.100:8080',
                         border: InputBorder.none,
                         isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
                       ),
                       keyboardType: TextInputType.url,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '留空表示不使用独立 IPFS 服务；可在任意时刻修改。',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isMacOS ? const Color(0xFF95A0BD) : cs.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 12),
                   Align(
                     alignment: Alignment.centerRight,
                     child: FilledButton.tonal(
-                      onPressed: _saveIpfsOnly,
-                      child: const Text('保存'),
+                      onPressed: (_savingIpfs || !ipfsChanged)
+                          ? null
+                          : _saveIpfsOnly,
+                      child: _savingIpfs
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('保存 IPFS'),
                     ),
                   ),
                 ],
@@ -151,26 +340,8 @@ class _SetupScreenState extends State<SetupScreen> {
 
             const SizedBox(height: 20),
 
-            // ── 已配置节点 ──
-            if (provider.connections.isNotEmpty) ...[
-              _SectionLabel(label: '已配置节点'),
-              ...provider.connections.asMap().entries.map((e) {
-                final i = e.key;
-                final c = e.value;
-                final isActive = provider.activeConnection?.address == c.address;
-                return _NodeCard(
-                  connection: c,
-                  isActive: isActive,
-                  onSwitch: isActive ? null : () => provider.setActive(i),
-                  onDelete: () => _confirmDelete(context, i, c.name),
-                  onToggleIpfs: () => provider.toggleIpfsStorage(i),
-                );
-              }),
-              const SizedBox(height: 20),
-            ],
-
-            // ── 添加节点 ──
-            _SectionLabel(label: '添加节点'),
+            // ── 节点配置（单节点） ──
+            _SectionLabel(label: '节点配置'),
             _Card(
               child: Form(
                 key: _formKey,
@@ -259,20 +430,31 @@ class _SetupScreenState extends State<SetupScreen> {
                       ),
                     ],
                     const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _testing ? null : _testAndSave,
-                        icon: _testing
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.check_circle_outline_rounded),
-                        label: Text(_testing ? '连接中...' : '测试并保存'),
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _testing ? null : _testNodeOnly,
+                            icon: const Icon(Icons.wifi_find_rounded),
+                            label: const Text('测试连接'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _testing ? null : _saveNode,
+                            icon: _testing
+                                ? const SizedBox(
+                                    height: 18,
+                                    width: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.check_circle_outline_rounded),
+                            label: Text(_testing ? '连接中...' : '保存节点配置'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -284,30 +466,65 @@ class _SetupScreenState extends State<SetupScreen> {
       ),
     );
   }
+}
 
-  void _confirmDelete(BuildContext context, int index, String name) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: PlatformHelper.isMacOS
-            ? const Color(0xFF232841)
-            : null,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('删除节点'),
-        content: Text('确定要删除节点「$name」吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+// ── 节点卡片 ──────────────────────────────────────────────────
+
+class _StatusOverviewCard extends StatelessWidget {
+  const _StatusOverviewCard({
+    required this.activeName,
+    required this.activeAddress,
+    required this.ipfsEndpoint,
+  });
+
+  final String? activeName;
+  final String? activeAddress;
+  final String? ipfsEndpoint;
+
+  @override
+  Widget build(BuildContext context) {
+    final isMacOS = PlatformHelper.isMacOS;
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: isMacOS ? Colors.white.withValues(alpha: 0.06) : Colors.white,
+        border: isMacOS
+            ? Border.all(color: Colors.white.withValues(alpha: 0.14))
+            : Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '当前状态',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: isMacOS ? const Color(0xFFEAF0FF) : const Color(0xFF1A1A2E),
+            ),
           ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
-            onPressed: () {
-              Navigator.pop(context);
-              context.read<ConnectionProvider>().removeConnection(index);
-            },
-            child: const Text('删除'),
+          const SizedBox(height: 10),
+          _StatusRow(
+            icon: Icons.hub_rounded,
+            label: '当前节点',
+            value: activeName == null
+                ? '未配置'
+                : '$activeName (${activeAddress ?? '-'})',
+            isMacOS: isMacOS,
+          ),
+          const SizedBox(height: 8),
+          _StatusRow(
+            icon: Icons.cloud_rounded,
+            label: 'IPFS',
+            value: ipfsEndpoint?.trim().isNotEmpty == true
+                ? ipfsEndpoint!
+                : '未配置（可选）',
+            isMacOS: isMacOS,
+            accentColor: ipfsEndpoint?.trim().isNotEmpty == true
+                ? const Color(0xFF34C759)
+                : cs.onSurfaceVariant,
           ),
         ],
       ),
@@ -315,178 +532,54 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 }
 
-// ── 节点卡片 ──────────────────────────────────────────────────
-
-class _NodeCard extends StatelessWidget {
-  const _NodeCard({
-    required this.connection,
-    required this.isActive,
-    required this.onDelete,
-    this.onSwitch,
-    this.onToggleIpfs,
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.isMacOS,
+    this.accentColor,
   });
 
-  final ConnectionModel connection;
-  final bool isActive;
-  final VoidCallback? onSwitch;
-  final VoidCallback onDelete;
-  final VoidCallback? onToggleIpfs;
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isMacOS;
+  final Color? accentColor;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isMacOS = PlatformHelper.isMacOS;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: isActive
-            ? (isMacOS
-                ? const Color(0xFF2A3356).withValues(alpha: 0.72)
-                : cs.primaryContainer.withValues(alpha: 0.45))
-            : (isMacOS
-                ? Colors.white.withValues(alpha: 0.06)
-                : cs.surfaceContainerLow),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isActive
-              ? cs.primary.withValues(alpha: isMacOS ? 0.45 : 0.35)
-              : (isMacOS
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : cs.outlineVariant.withValues(alpha: 0.4)),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 16,
+          color: accentColor ?? (isMacOS ? const Color(0xFF9EB5FF) : const Color(0xFF4A6CF7)),
         ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: isActive
-                    ? cs.primary
-                    : (isMacOS
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : cs.surfaceContainerHigh),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isActive ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                size: 18,
-                color: isActive
-                    ? Colors.white
-                    : (isMacOS ? const Color(0xFFAFBAD8) : cs.onSurfaceVariant),
-              ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 58,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: isMacOS ? const Color(0xFF95A0BD) : const Color(0xFF7A7A85),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        connection.name,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight:
-                              isActive ? FontWeight.w600 : FontWeight.normal,
-                          color: isActive
-                              ? (isMacOS
-                                  ? const Color(0xFFF2F6FF)
-                                  : cs.onPrimaryContainer)
-                              : (isMacOS
-                                  ? const Color(0xFFE4EAFF)
-                                  : cs.onSurface),
-                        ),
-                      ),
-                      if (isActive) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: cs.primary,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            '当前',
-                            style: TextStyle(
-                                fontSize: 10,
-                                color: cs.onPrimary,
-                                fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    connection.address,
-                    style:
-                        TextStyle(
-                            fontSize: 12,
-                            color: isMacOS
-                                ? const Color(0xFF95A0BD)
-                                : cs.onSurfaceVariant),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (onToggleIpfs != null) ...[
-                    const SizedBox(height: 4),
-                    GestureDetector(
-                      onTap: onToggleIpfs,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            connection.enableIpfsStorage
-                                ? Icons.cloud_done_rounded
-                                : Icons.cloud_off_rounded,
-                            size: 12,
-                            color: connection.enableIpfsStorage
-                                ? const Color(0xFF34C759)
-                                : (isMacOS
-                                    ? const Color(0xFF95A0BD)
-                                    : cs.onSurfaceVariant),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            connection.enableIpfsStorage
-                                ? 'IPFS 存储已启用'
-                                : '启用 IPFS 存储',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: connection.enableIpfsStorage
-                                  ? const Color(0xFF34C759)
-                                  : (isMacOS
-                                      ? const Color(0xFF95A0BD)
-                                      : cs.onSurfaceVariant),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            if (onSwitch != null)
-              TextButton(
-                onPressed: onSwitch,
-                style:
-                    TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                child: const Text('切换'),
-              ),
-            IconButton(
-              icon: Icon(Icons.delete_outline_rounded,
-                  color: cs.error, size: 20),
-              visualDensity: VisualDensity.compact,
-              onPressed: onDelete,
-            ),
-          ],
+          ),
         ),
-      ),
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: isMacOS ? const Color(0xFFEAF0FF) : const Color(0xFF1A1A2E),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
