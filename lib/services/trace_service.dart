@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:block_flutter/block_flutter.dart';
 
 import '../providers/connection_provider.dart';
@@ -20,6 +21,7 @@ class TraceService {
   TraceService(this._connectionProvider);
 
   final ConnectionProvider _connectionProvider;
+  static const _uploadedImageCacheKey = 'block_trace_uploaded_image_cache_v1';
 
   Future<BlockModel> saveTrace({
     required String title,
@@ -32,6 +34,12 @@ class TraceService {
     DateTime? addTime,
     String? existingBid,
     void Function(String status)? onStatus,
+    void Function({
+      required int total,
+      required int completed,
+      int? uploadingIndex,
+      required bool fromCache,
+    })? onImageProgress,
   }) async {
     final connection = _connectionProvider.activeConnection;
     if (connection == null) throw Exception('当前没有可用的连接');
@@ -61,16 +69,47 @@ class TraceService {
         .firstOrNull ?? connection;
 
     final imageBids = <String>[];
+    final totalImages = images.length;
+    var completedImages = 0;
     for (var i = 0; i < images.length; i++) {
       onStatus?.call('上传图片 ${i + 1}/${images.length}...');
       try {
+        final file = images[i];
+        final cachedBid = await _getCachedImageBid(file);
+        if (cachedBid != null && cachedBid.isNotEmpty) {
+          imageBids.add(cachedBid);
+          completedImages++;
+          onImageProgress?.call(
+            total: totalImages,
+            completed: completedImages,
+            uploadingIndex: null,
+            fromCache: true,
+          );
+          continue;
+        }
+
+        onImageProgress?.call(
+          total: totalImages,
+          completed: completedImages,
+          uploadingIndex: i + 1,
+          fromCache: false,
+        );
+
         final imageBid = await _uploadFileAsBlock(
-          file: images[i],
+          file: file,
           storageConnection: storageConnection,
           blockConnection: connection,
           nodeBid: nodeBid,
         );
+        await _cacheUploadedImageBid(file, imageBid);
         imageBids.add(imageBid);
+        completedImages++;
+        onImageProgress?.call(
+          total: totalImages,
+          completed: completedImages,
+          uploadingIndex: null,
+          fromCache: false,
+        );
         print('=== 图片 block 创建成功: $imageBid');
       } catch (e) {
         print('=== 图片上传失败: $e');
@@ -196,6 +235,45 @@ class TraceService {
     } finally {
       try { await File(result.uploadPath).delete(); } catch (_) {}
     }
+  }
+
+  Future<String?> _getCachedImageBid(File file) async {
+    try {
+      final key = await _imageCacheKey(file);
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_uploadedImageCacheKey);
+      if (raw == null || raw.isEmpty) return null;
+      final map = jsonDecode(raw);
+      if (map is! Map) return null;
+      final bid = map[key];
+      return bid is String && bid.isNotEmpty ? bid : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cacheUploadedImageBid(File file, String bid) async {
+    try {
+      final key = await _imageCacheKey(file);
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_uploadedImageCacheKey);
+      final map = <String, dynamic>{};
+      if (raw != null && raw.isNotEmpty) {
+        final parsed = jsonDecode(raw);
+        if (parsed is Map) {
+          for (final entry in parsed.entries) {
+            map[entry.key.toString()] = entry.value;
+          }
+        }
+      }
+      map[key] = bid;
+      await prefs.setString(_uploadedImageCacheKey, jsonEncode(map));
+    } catch (_) {}
+  }
+
+  Future<String> _imageCacheKey(File file) async {
+    final stat = await file.stat();
+    return '${file.path}|${stat.size}|${stat.modified.millisecondsSinceEpoch}';
   }
 }
 

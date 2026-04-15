@@ -7,6 +7,7 @@ import 'package:block_flutter/block_flutter.dart';
 import '../core/platform_helper.dart';
 import '../models/block_item.dart';
 import '../providers/connection_provider.dart';
+import '../providers/draft_provider.dart';
 import '../providers/tag_provider.dart';
 import '../providers/trace_provider.dart';
 import '../services/image_service.dart';
@@ -47,6 +48,8 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
       GlobalKey<NavigatorState>();
   final GlobalKey<NavigatorState> _overviewNavigatorKey =
       GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _draftNavigatorKey =
+      GlobalKey<NavigatorState>();
   _SidebarView _view = _SidebarView.timeline;
 
   Future<void> _openCreate() async {
@@ -77,6 +80,11 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
     _contentNavigatorKey.currentState?.popUntil((route) => route.isFirst);
   }
 
+  void _showDrafts() {
+    setState(() => _view = _SidebarView.drafts);
+    _draftNavigatorKey.currentState?.popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,16 +104,15 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
             child: Row(
               children: [
                 // Sidebar (draggable area)
-                DragToMoveArea(
-                  child: SizedBox(
-                    width: menuWidth,
-                    child: _MacSidebar(
-                      isCompact: isCompact,
-                      currentView: _view,
-                      onCreate: _openCreate,
-                      onOverview: _openOverview,
-                      onShowTimeline: _showTimeline,
-                    ),
+                SizedBox(
+                  width: menuWidth,
+                  child: _MacSidebar(
+                    isCompact: isCompact,
+                    currentView: _view,
+                    onCreate: _openCreate,
+                    onOverview: _openOverview,
+                    onShowDrafts: _showDrafts,
+                    onShowTimeline: _showTimeline,
                   ),
                 ),
                 SizedBox(width: isCompact ? 8 : 12),
@@ -114,6 +121,7 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
                     isCompact: isCompact,
                     currentView: _view,
                     overviewNavigatorKey: _overviewNavigatorKey,
+                    draftNavigatorKey: _draftNavigatorKey,
                     navigatorKey: _contentNavigatorKey,
                     onOpenDetail: _openDetail,
                   ),
@@ -127,7 +135,7 @@ class _MacHomeScreenState extends State<_MacHomeScreen> {
   }
 }
 
-enum _SidebarView { timeline, overview }
+enum _SidebarView { timeline, overview, drafts }
 
 // ─────────────────────────────────────────────────────────────
 // macOS 侧边栏：全部 + 标签列表 + 设置
@@ -138,6 +146,7 @@ class _MacSidebar extends StatefulWidget {
   final _SidebarView currentView;
   final Future<void> Function() onCreate;
   final VoidCallback onOverview;
+  final VoidCallback onShowDrafts;
   final VoidCallback onShowTimeline;
 
   const _MacSidebar({
@@ -145,6 +154,7 @@ class _MacSidebar extends StatefulWidget {
     required this.currentView,
     required this.onCreate,
     required this.onOverview,
+    required this.onShowDrafts,
     required this.onShowTimeline,
   });
 
@@ -153,6 +163,9 @@ class _MacSidebar extends StatefulWidget {
 }
 
 class _MacSidebarState extends State<_MacSidebar> {
+  bool _publishHovered = false;
+  bool _publishPressed = false;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -169,8 +182,13 @@ class _MacSidebarState extends State<_MacSidebar> {
       ),
       child: Column(
         children: [
-          // 占位空布局 - 调整系统按钮位置
-          const SizedBox(height: 28),
+          // 仅顶部区域可拖拽窗口，避免菜单点击被拖拽手势延迟
+          const DragToMoveArea(
+            child: SizedBox(
+              height: 28,
+              width: double.infinity,
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _OverviewCard(
@@ -214,6 +232,25 @@ class _MacSidebarState extends State<_MacSidebar> {
           ),
           const SizedBox(height: 4),
 
+          Consumer<DraftProvider>(
+            builder: (context, draftProvider, _) {
+              if (draftProvider.drafts.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                children: [
+                  _MacSidebarItem(
+                    icon: Icons.edit_note_rounded,
+                    label: '未保存 (${draftProvider.drafts.length})',
+                    selected: widget.currentView == _SidebarView.drafts,
+                    onTap: widget.onShowDrafts,
+                  ),
+                  const SizedBox(height: 2),
+                ],
+              );
+            },
+          ),
+
           // 全部痕迹按钮
           _MacSidebarItem(
             icon: Icons.all_inclusive_rounded,
@@ -255,79 +292,119 @@ class _MacSidebarState extends State<_MacSidebar> {
           // 发布按钮
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                child: Material(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(
+                0,
+                _publishPressed ? 1.5 : (_publishHovered ? -1.5 : 0),
+                0,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: Material(
+                    color: Colors.transparent,
                     borderRadius: BorderRadius.circular(14),
-                    onTap: widget.onCreate,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 11,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.18),
-                          width: 1,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: widget.onCreate,
+                      onHover: (v) {
+                        if (_publishHovered != v) {
+                          setState(() => _publishHovered = v);
+                        }
+                      },
+                      onHighlightChanged: (v) {
+                        if (_publishPressed != v) {
+                          setState(() => _publishPressed = v);
+                        }
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 11,
                         ),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white.withValues(alpha: 0.18),
-                            Colors.white.withValues(alpha: 0.06),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _publishHovered
+                                ? Colors.white.withValues(alpha: 0.40)
+                                : Colors.white.withValues(alpha: 0.26),
+                            width: 1,
+                          ),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withValues(
+                                alpha: _publishHovered ? 0.26 : 0.18,
+                              ),
+                              const Color(0xFF8AA6FF).withValues(
+                                alpha: _publishHovered ? 0.20 : 0.14,
+                              ),
+                              const Color(0xFF5E7EFA).withValues(
+                                alpha: _publishHovered ? 0.24 : 0.16,
+                              ),
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(
+                                alpha: _publishHovered ? 0.22 : 0.15,
+                              ),
+                              blurRadius: _publishHovered ? 18 : 12,
+                              offset: Offset(0, _publishHovered ? 8 : 5),
+                            ),
+                            BoxShadow(
+                              color: const Color(0xFF89A1FF).withValues(
+                                alpha: _publishHovered ? 0.20 : 0.12,
+                              ),
+                              blurRadius: _publishHovered ? 20 : 15,
+                              offset: const Offset(0, 3),
+                            ),
                           ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.20),
-                            blurRadius: 14,
-                            offset: const Offset(0, 6),
-                          ),
-                          BoxShadow(
-                            color: const Color(0xFF4A6CF7).withValues(alpha: 0.10),
-                            blurRadius: 18,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(7),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.10),
-                                width: 1,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFBFD0FF).withValues(
+                                  alpha: _publishHovered ? 0.26 : 0.18,
+                                ),
+                                borderRadius: BorderRadius.circular(7),
+                                border: Border.all(
+                                  color: Colors.white.withValues(
+                                    alpha: _publishHovered ? 0.36 : 0.24,
+                                  ),
+                                  width: 1,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.add_rounded,
+                                size: 14,
+                                color: Colors.white,
                               ),
                             ),
-                            child: const Icon(
-                              Icons.add_rounded,
-                              size: 14,
-                              color: Colors.white,
+                            const SizedBox(width: 8),
+                            const Text(
+                              '发布',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.3,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '发布',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -676,6 +753,7 @@ class _MacSidebarItem extends StatelessWidget {
   final String label;
   final bool isAll;
   final bool selected;
+  final VoidCallback? onTap;
   final VoidCallback? onAfterSelect;
 
   const _MacSidebarItem({
@@ -683,6 +761,7 @@ class _MacSidebarItem extends StatelessWidget {
     required this.label,
     this.isAll = false,
     this.selected = false,
+    this.onTap,
     this.onAfterSelect,
   });
 
@@ -694,6 +773,10 @@ class _MacSidebarItem extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () {
+          if (onTap != null) {
+            onTap!.call();
+            return;
+          }
           if (isAll) {
             context.read<TraceProvider>().setTag(null);
             onAfterSelect?.call();
@@ -1020,6 +1103,7 @@ class _MacContentArea extends StatelessWidget {
   final bool isCompact;
   final _SidebarView currentView;
   final GlobalKey<NavigatorState> overviewNavigatorKey;
+  final GlobalKey<NavigatorState> draftNavigatorKey;
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueChanged<BlockModel> onOpenDetail;
 
@@ -1027,6 +1111,7 @@ class _MacContentArea extends StatelessWidget {
     required this.isCompact,
     required this.currentView,
     required this.overviewNavigatorKey,
+    required this.draftNavigatorKey,
     required this.navigatorKey,
     required this.onOpenDetail,
   });
@@ -1051,12 +1136,22 @@ class _MacContentArea extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
               child: IndexedStack(
-                index: currentView == _SidebarView.overview ? 0 : 1,
+                index: switch (currentView) {
+                  _SidebarView.overview => 0,
+                  _SidebarView.drafts => 1,
+                  _SidebarView.timeline => 2,
+                },
                 children: [
                   Navigator(
                     key: overviewNavigatorKey,
                     onGenerateRoute: (_) => MaterialPageRoute(
                       builder: (_) => const _OverviewPlaceholderPage(),
+                    ),
+                  ),
+                  Navigator(
+                    key: draftNavigatorKey,
+                    onGenerateRoute: (_) => MaterialPageRoute(
+                      builder: (_) => const _DraftsContent(),
                     ),
                   ),
                   Navigator(
@@ -1075,6 +1170,210 @@ class _MacContentArea extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// macOS 草稿列表
+// ─────────────────────────────────────────────────────────────
+
+class _DraftsContent extends StatelessWidget {
+  const _DraftsContent();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<DraftProvider>(
+      builder: (context, provider, _) {
+        final drafts = provider.drafts;
+        if (drafts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.note_alt_outlined,
+                  size: 52,
+                  color: Colors.white.withValues(alpha: 0.24),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '没有未保存内容',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFB8C3DF),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '编辑后未保存的内容会自动出现在这里',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.46),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+          itemCount: drafts.length,
+          itemBuilder: (context, index) {
+            final draft = drafts[index];
+            final title = draft.title.trim().isEmpty ? '未命名草稿' : draft.title.trim();
+            final subtitle = draft.content.trim().isEmpty
+                ? '无正文'
+                : draft.content.trim().replaceAll('\n', ' ');
+            final uploadInfo = draft.isSaving
+                ? '上传中 ${draft.uploadCompleted}/${draft.uploadTotal}'
+                : (draft.saveError == null ? null : '保存失败：${draft.saveError}');
+            final info =
+                '${draft.tags.isNotEmpty ? '#${draft.tags.join(' #')} · ' : ''}${draft.localImagePaths.length + draft.existingImageMetas.length} 张图 · ${_formatDraftTime(draft.updatedAt)}';
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () async {
+                    if (draft.isSaving) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('该草稿正在上传保存中，暂时不可编辑'),
+                        ),
+                      );
+                      return;
+                    }
+                    final result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EditScreen(
+                          draftId: draft.id,
+                          initialTitle: draft.title.isEmpty ? null : draft.title,
+                          initialContent:
+                              draft.content.isEmpty ? null : draft.content,
+                          initialTags: draft.tags,
+                          initialLocalImagePaths: draft.localImagePaths,
+                          initialImageMetas: draft.existingImageMetas,
+                          existingBid: draft.existingBid,
+                          initialAddTime: draft.initialAddTime,
+                          initialLat: draft.lat,
+                          initialLng: draft.lng,
+                        ),
+                      ),
+                    );
+                    if (result == true && context.mounted) {
+                      context.read<TraceProvider>().refresh();
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: Colors.white.withValues(alpha: 0.06),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8DA6FF).withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.edit_note_rounded,
+                            size: 20,
+                            color: Color(0xFF8DA6FF),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFFEAF0FF),
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.4,
+                                  color: Colors.white.withValues(alpha: 0.62),
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                info,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white.withValues(alpha: 0.45),
+                                ),
+                              ),
+                              if (uploadInfo != null) ...[
+                                const SizedBox(height: 5),
+                                Text(
+                                  draft.uploadingIndex == null
+                                      ? uploadInfo
+                                      : '$uploadInfo · 当前第 ${draft.uploadingIndex} 张',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: draft.isSaving
+                                        ? const Color(0xFF98B1FF)
+                                        : const Color(0xFFFF8A8A),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '删除草稿',
+                          visualDensity: VisualDensity.compact,
+                          onPressed:
+                              draft.isSaving ? null : () => provider.remove(draft.id),
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: Colors.white.withValues(alpha: 0.52),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatDraftTime(DateTime dt) {
+    String two(int v) => v < 10 ? '0$v' : '$v';
+    return '${dt.month}/${dt.day} ${two(dt.hour)}:${two(dt.minute)}';
   }
 }
 
@@ -1129,53 +1428,49 @@ class _TimelineContentState extends State<_TimelineContent> {
         if (provider.blocks.isEmpty) {
           return _buildEmpty();
         }
-        return RefreshIndicator(
-          color: const Color(0xFF4A6CF7),
-          onRefresh: provider.refresh,
-          child: ListView.builder(
-            controller: _scrollCtrl,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 80),
-            itemCount: provider.blocks.length + (provider.hasMore ? 1 : 0),
-            itemBuilder: (context, index) {
-              if (index == provider.blocks.length) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: CircularProgressIndicator(color: Color(0xFF4A6CF7)),
-                  ),
-                );
-              }
-              final item = _blockToItem(provider.blocks[index]);
-              if (item == null) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: GestureDetector(
-                  onTap: () {
-                    final block = provider.blocks[index];
-                    if (widget.onOpenDetail != null) {
-                      widget.onOpenDetail!(block);
-                      return;
-                    }
-                    final imageService = TraceImageService(
-                      context.read<ConnectionProvider>(),
-                    );
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => DetailScreen(
-                          block: block,
-                          imageService: imageService,
-                        ),
-                      ),
-                    );
-                  },
-                  onLongPress: () =>
-                      _showCardOptions(context, provider.blocks[index]),
-                  child: _buildCard(item),
+        return ListView.builder(
+          controller: _scrollCtrl,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 80),
+          itemCount: provider.blocks.length + (provider.hasMore ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index == provider.blocks.length) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: CircularProgressIndicator(color: Color(0xFF4A6CF7)),
                 ),
               );
-            },
-          ),
+            }
+            final item = _blockToItem(provider.blocks[index]);
+            if (item == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: GestureDetector(
+                onTap: () {
+                  final block = provider.blocks[index];
+                  if (widget.onOpenDetail != null) {
+                    widget.onOpenDetail!(block);
+                    return;
+                  }
+                  final imageService = TraceImageService(
+                    context.read<ConnectionProvider>(),
+                  );
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DetailScreen(
+                        block: block,
+                        imageService: imageService,
+                      ),
+                    ),
+                  );
+                },
+                onLongPress: () =>
+                    _showCardOptions(context, provider.blocks[index]),
+                child: _buildCard(item),
+              ),
+            );
+          },
         );
       },
     );
@@ -1257,9 +1552,17 @@ class _TimelineContentState extends State<_TimelineContent> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: const Color(0xFF20263D).withValues(alpha: 0.96),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.36),
+              blurRadius: 26,
+              offset: const Offset(0, -6),
+            ),
+          ],
         ),
         child: SafeArea(
           child: Column(
@@ -1270,7 +1573,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                 height: 4,
                 margin: const EdgeInsets.only(top: 12, bottom: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.12),
+                  color: Colors.white.withValues(alpha: 0.24),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1282,9 +1585,9 @@ class _TimelineContentState extends State<_TimelineContent> {
                   ),
                   child: Text(
                     bid,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF9E9E9E),
+                      color: Colors.white.withValues(alpha: 0.55),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1295,7 +1598,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0F2FF),
+                    color: const Color(0xFF8FA6FF).withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
@@ -1306,7 +1609,11 @@ class _TimelineContentState extends State<_TimelineContent> {
                 ),
                 title: const Text(
                   '复制 BID',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFFEAF0FF),
+                  ),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -1326,7 +1633,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.08),
+                    color: Colors.red.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
@@ -1348,7 +1655,7 @@ class _TimelineContentState extends State<_TimelineContent> {
                   _confirmDelete(context, block);
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
             ],
           ),
         ),
@@ -1553,53 +1860,49 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                   if (provider.blocks.isEmpty) {
                     return _buildEmpty();
                   }
-                  return RefreshIndicator(
-                    color: const Color(0xFF4A6CF7),
-                    onRefresh: provider.refresh,
-                    child: ListView.builder(
-                      controller: _scrollCtrl,
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                      itemCount:
-                          provider.blocks.length + (provider.hasMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == provider.blocks.length) {
-                          return const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                color: Color(0xFF4A6CF7),
-                              ),
+                  return ListView.builder(
+                    controller: _scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                    itemCount:
+                        provider.blocks.length + (provider.hasMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == provider.blocks.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF4A6CF7),
                             ),
-                          );
-                        }
-                        final item = _blockToItem(provider.blocks[index]);
-                        if (item == null) return const SizedBox.shrink();
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: GestureDetector(
-                            onTap: () {
-                              final imageService = TraceImageService(
-                                context.read<ConnectionProvider>(),
-                              );
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => DetailScreen(
-                                    block: provider.blocks[index],
-                                    imageService: imageService,
-                                  ),
-                                ),
-                              );
-                            },
-                            onLongPress: () => _showCardOptions(
-                              context,
-                              provider.blocks[index],
-                            ),
-                            child: _buildCard(item),
                           ),
                         );
-                      },
-                    ),
+                      }
+                      final item = _blockToItem(provider.blocks[index]);
+                      if (item == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: GestureDetector(
+                          onTap: () {
+                            final imageService = TraceImageService(
+                              context.read<ConnectionProvider>(),
+                            );
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => DetailScreen(
+                                  block: provider.blocks[index],
+                                  imageService: imageService,
+                                ),
+                              ),
+                            );
+                          },
+                          onLongPress: () => _showCardOptions(
+                            context,
+                            provider.blocks[index],
+                          ),
+                          child: _buildCard(item),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
@@ -1700,9 +2003,17 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: const Color(0xFF20263D).withValues(alpha: 0.96),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.36),
+              blurRadius: 26,
+              offset: const Offset(0, -6),
+            ),
+          ],
         ),
         child: SafeArea(
           child: Column(
@@ -1713,7 +2024,7 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                 height: 4,
                 margin: const EdgeInsets.only(top: 12, bottom: 8),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.12),
+                  color: Colors.white.withValues(alpha: 0.24),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1725,9 +2036,9 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                   ),
                   child: Text(
                     bid,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF9E9E9E),
+                      color: Colors.white.withValues(alpha: 0.55),
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1738,7 +2049,7 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0F2FF),
+                    color: const Color(0xFF8FA6FF).withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
@@ -1749,7 +2060,11 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                 ),
                 title: const Text(
                   '复制 BID',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFFEAF0FF),
+                  ),
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -1769,7 +2084,7 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.08),
+                    color: Colors.red.withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
@@ -1791,7 +2106,7 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                   _confirmDelete(context, block);
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
             ],
           ),
         ),

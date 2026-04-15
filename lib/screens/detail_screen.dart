@@ -3,6 +3,7 @@ import 'package:block_flutter/block_flutter.dart';
 import 'package:provider/provider.dart';
 import '../models/block_item.dart';
 import '../core/platform_helper.dart';
+import '../providers/draft_provider.dart';
 import '../providers/trace_provider.dart';
 import '../services/image_service.dart';
 import '../widgets/trace_image.dart';
@@ -221,18 +222,24 @@ class _DetailScreenState extends State<DetailScreen> {
             padding: const EdgeInsets.only(right: 14),
             child: FilledButton(
               onPressed: () {
+                final draftProvider = context.read<DraftProvider>();
+                final draft = draftProvider.findLatestByExistingBid(
+                  d.bid.isNotEmpty ? d.bid : null,
+                );
                 Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => EditScreen(
-                      initialTitle: d.title,
-                      initialContent: d.content,
-                      initialTags: d.tags,
-                      initialImageMetas: d.imageMetas,
-                      initialAddTime: d.createdAt,
+                      draftId: draft?.id,
+                      initialTitle: draft != null ? draft.title : d.title,
+                      initialContent: draft != null ? draft.content : d.content,
+                      initialTags: draft?.tags ?? d.tags,
+                      initialLocalImagePaths: draft?.localImagePaths ?? const [],
+                      initialImageMetas: draft?.existingImageMetas ?? d.imageMetas,
+                      initialAddTime: draft?.initialAddTime ?? d.createdAt,
                       existingBid: d.bid.isNotEmpty ? d.bid : null,
-                      initialLat: d.lat,
-                      initialLng: d.lng,
+                      initialLat: draft?.lat ?? d.lat,
+                      initialLng: draft?.lng ?? d.lng,
                     ),
                   ),
                 ).then((_) => _loadLatest()); // 编辑后刷新
@@ -594,35 +601,6 @@ class _InfoPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (title != null && title!.isNotEmpty) ...[
-            Text(
-              title!,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: palette.ink,
-                height: 1.25,
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              height: 3,
-              width: 42,
-              decoration: BoxDecoration(
-                color: palette.accent,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(height: 14),
-          ],
-          if (content != null && content!.isNotEmpty) ...[
-            Text(
-              content!,
-              style: TextStyle(fontSize: 16, color: palette.body, height: 1.8),
-            ),
-            const SizedBox(height: 16),
-          ],
           if (tags.isNotEmpty) ...[
             Wrap(
               spacing: 8,
@@ -659,6 +637,35 @@ class _InfoPanel extends StatelessWidget {
                     ),
                   )
                   .toList(),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (title != null && title!.isNotEmpty) ...[
+            Text(
+              title!,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: palette.ink,
+                height: 1.25,
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              height: 3,
+              width: 42,
+              decoration: BoxDecoration(
+                color: palette.accent,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (content != null && content!.isNotEmpty) ...[
+            Text(
+              content!,
+              style: TextStyle(fontSize: 16, color: palette.body, height: 1.8),
             ),
             const SizedBox(height: 16),
           ],

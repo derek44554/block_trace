@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'providers/connection_provider.dart';
+import 'providers/draft_provider.dart';
 import 'providers/tag_provider.dart';
 import 'providers/trace_provider.dart';
 import 'screens/home_screen.dart';
@@ -43,6 +44,7 @@ class BlockTraceApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ConnectionProvider()..load()),
+        ChangeNotifierProvider(create: (_) => DraftProvider()..load()),
         ChangeNotifierProvider(create: (_) => TagProvider()..load()),
         ChangeNotifierProxyProvider<ConnectionProvider, TraceProvider>(
           create: (ctx) => TraceProvider(ctx.read<ConnectionProvider>()),

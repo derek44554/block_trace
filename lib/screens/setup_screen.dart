@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:block_flutter/block_flutter.dart';
 import '../providers/connection_provider.dart';
+import '../core/platform_helper.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -93,15 +94,23 @@ class _SetupScreenState extends State<SetupScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<ConnectionProvider>();
     final cs = Theme.of(context).colorScheme;
+    final isMacOS = PlatformHelper.isMacOS;
+    final bgColor = isMacOS ? const Color(0xFF1A1A2E) : const Color(0xFFF5F6FA);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
+      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF5F6FA),
-        surfaceTintColor: const Color(0xFFF5F6FA),
+        backgroundColor: bgColor,
+        surfaceTintColor: bgColor,
         elevation: 0,
-        title: const Text('节点与 IPFS 设置',
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        title: Text(
+          '节点与 IPFS 设置',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: isMacOS ? const Color(0xFFF2F6FF) : null,
+          ),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -280,6 +289,9 @@ class _SetupScreenState extends State<SetupScreen> {
     showDialog<void>(
       context: context,
       builder: (_) => AlertDialog(
+        backgroundColor: PlatformHelper.isMacOS
+            ? const Color(0xFF232841)
+            : null,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('删除节点'),
         content: Text('确定要删除节点「$name」吗？'),
@@ -323,17 +335,24 @@ class _NodeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final isMacOS = PlatformHelper.isMacOS;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: isActive
-            ? cs.primaryContainer.withValues(alpha: 0.45)
-            : cs.surfaceContainerLow,
+            ? (isMacOS
+                ? const Color(0xFF2A3356).withValues(alpha: 0.72)
+                : cs.primaryContainer.withValues(alpha: 0.45))
+            : (isMacOS
+                ? Colors.white.withValues(alpha: 0.06)
+                : cs.surfaceContainerLow),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isActive
-              ? cs.primary.withValues(alpha: 0.35)
-              : cs.outlineVariant.withValues(alpha: 0.4),
+              ? cs.primary.withValues(alpha: isMacOS ? 0.45 : 0.35)
+              : (isMacOS
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : cs.outlineVariant.withValues(alpha: 0.4)),
         ),
       ),
       child: Padding(
@@ -344,13 +363,19 @@ class _NodeCard extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: isActive ? cs.primary : cs.surfaceContainerHigh,
+                color: isActive
+                    ? cs.primary
+                    : (isMacOS
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : cs.surfaceContainerHigh),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 isActive ? Icons.wifi_rounded : Icons.wifi_off_rounded,
                 size: 18,
-                color: isActive ? Colors.white : cs.onSurfaceVariant,
+                color: isActive
+                    ? Colors.white
+                    : (isMacOS ? const Color(0xFFAFBAD8) : cs.onSurfaceVariant),
               ),
             ),
             const SizedBox(width: 12),
@@ -367,8 +392,12 @@ class _NodeCard extends StatelessWidget {
                           fontWeight:
                               isActive ? FontWeight.w600 : FontWeight.normal,
                           color: isActive
-                              ? cs.onPrimaryContainer
-                              : cs.onSurface,
+                              ? (isMacOS
+                                  ? const Color(0xFFF2F6FF)
+                                  : cs.onPrimaryContainer)
+                              : (isMacOS
+                                  ? const Color(0xFFE4EAFF)
+                                  : cs.onSurface),
                         ),
                       ),
                       if (isActive) ...[
@@ -395,7 +424,11 @@ class _NodeCard extends StatelessWidget {
                   Text(
                     connection.address,
                     style:
-                        TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                        TextStyle(
+                            fontSize: 12,
+                            color: isMacOS
+                                ? const Color(0xFF95A0BD)
+                                : cs.onSurfaceVariant),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -413,7 +446,9 @@ class _NodeCard extends StatelessWidget {
                             size: 12,
                             color: connection.enableIpfsStorage
                                 ? const Color(0xFF34C759)
-                                : cs.onSurfaceVariant,
+                                : (isMacOS
+                                    ? const Color(0xFF95A0BD)
+                                    : cs.onSurfaceVariant),
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -424,7 +459,9 @@ class _NodeCard extends StatelessWidget {
                               fontSize: 11,
                               color: connection.enableIpfsStorage
                                   ? const Color(0xFF34C759)
-                                  : cs.onSurfaceVariant,
+                                  : (isMacOS
+                                      ? const Color(0xFF95A0BD)
+                                      : cs.onSurfaceVariant),
                             ),
                           ),
                         ],
@@ -462,12 +499,13 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMacOS = PlatformHelper.isMacOS;
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: const Color(0xFF4A6CF7),
+              color: isMacOS ? const Color(0xFF87A1FF) : const Color(0xFF4A6CF7),
               fontWeight: FontWeight.w600,
               letterSpacing: 0.8,
             ),
@@ -482,21 +520,38 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMacOS = PlatformHelper.isMacOS;
+    final theme = Theme.of(context);
+    final cardTheme = isMacOS
+        ? theme.copyWith(
+            inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+              labelStyle: const TextStyle(color: Color(0xFFC5D0EC)),
+              hintStyle: const TextStyle(color: Color(0xFF7E8AAF)),
+            ),
+            textTheme: theme.textTheme.apply(
+              bodyColor: const Color(0xFFF2F6FF),
+              displayColor: const Color(0xFFF2F6FF),
+            ),
+          )
+        : theme;
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isMacOS ? Colors.white.withValues(alpha: 0.06) : Colors.white,
         borderRadius: BorderRadius.circular(14),
+        border: isMacOS
+            ? Border.all(color: Colors.white.withValues(alpha: 0.14))
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
+            color: Colors.black.withValues(alpha: isMacOS ? 0.18 : 0.05),
+            blurRadius: isMacOS ? 14 : 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       padding: const EdgeInsets.all(16),
-      child: child,
+      child: Theme(data: cardTheme, child: child),
     );
   }
 }
@@ -528,10 +583,13 @@ class _CardRow extends StatelessWidget {
 class _CardDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final isMacOS = PlatformHelper.isMacOS;
     return Divider(
       height: 20,
       indent: 30,
-      color: Colors.black.withValues(alpha: 0.06),
+      color: isMacOS
+          ? Colors.white.withValues(alpha: 0.10)
+          : Colors.black.withValues(alpha: 0.06),
     );
   }
 }

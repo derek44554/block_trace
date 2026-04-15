@@ -26,6 +26,10 @@
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
+	<key>NSLocationUsageDescription</key>
+	<string>应用需要访问你的位置，用于记录痕迹中的 GPS 信息。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>应用需要访问你的图片，用于上传痕迹图片。</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
