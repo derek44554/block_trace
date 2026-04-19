@@ -15,6 +15,8 @@ class TraceDraft {
   final String? existingBid;
   final DateTime? initialAddTime;
   final bool useManualAddTime;
+  final bool useImageCompression;
+  final int imageCompressionStrength;
   final double? lat;
   final double? lng;
   final DateTime updatedAt;
@@ -40,6 +42,8 @@ class TraceDraft {
     this.existingBid,
     this.initialAddTime,
     this.useManualAddTime = false,
+    this.useImageCompression = false,
+    this.imageCompressionStrength = 45,
     this.lat,
     this.lng,
   });
@@ -54,32 +58,30 @@ class TraceDraft {
       lng != null;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'content': content,
-        'tags': tags,
-        'localImagePaths': localImagePaths,
-        'existingImageMetas': existingImageMetas
-            .map(
-              (m) => {
-                'cid': m.cid,
-                'encryptionKey': m.encryptionKey,
-                'bid': m.bid,
-              },
-            )
-            .toList(),
-        'existingBid': existingBid,
-        'initialAddTimeMs': initialAddTime?.millisecondsSinceEpoch,
-        'useManualAddTime': useManualAddTime,
-        'lat': lat,
-        'lng': lng,
-        'updatedAtMs': updatedAt.millisecondsSinceEpoch,
-        'isSaving': isSaving,
-        'uploadTotal': uploadTotal,
-        'uploadCompleted': uploadCompleted,
-        'uploadingIndex': uploadingIndex,
-        'saveError': saveError,
-      };
+    'id': id,
+    'title': title,
+    'content': content,
+    'tags': tags,
+    'localImagePaths': localImagePaths,
+    'existingImageMetas': existingImageMetas
+        .map(
+          (m) => {'cid': m.cid, 'encryptionKey': m.encryptionKey, 'bid': m.bid},
+        )
+        .toList(),
+    'existingBid': existingBid,
+    'initialAddTimeMs': initialAddTime?.millisecondsSinceEpoch,
+    'useManualAddTime': useManualAddTime,
+    'useImageCompression': useImageCompression,
+    'imageCompressionStrength': imageCompressionStrength,
+    'lat': lat,
+    'lng': lng,
+    'updatedAtMs': updatedAt.millisecondsSinceEpoch,
+    'isSaving': isSaving,
+    'uploadTotal': uploadTotal,
+    'uploadCompleted': uploadCompleted,
+    'uploadingIndex': uploadingIndex,
+    'saveError': saveError,
+  };
 
   factory TraceDraft.fromJson(Map<String, dynamic> json) {
     final metasRaw = json['existingImageMetas'];
@@ -114,13 +116,18 @@ class TraceDraft {
           : [],
       existingImageMetas: metas,
       existingBid: json['existingBid']?.toString(),
-      initialAddTime:
-          initialAddTimeMs is int ? DateTime.fromMillisecondsSinceEpoch(initialAddTimeMs) : null,
+      initialAddTime: initialAddTimeMs is int
+          ? DateTime.fromMillisecondsSinceEpoch(initialAddTimeMs)
+          : null,
       useManualAddTime: json['useManualAddTime'] == true,
+      useImageCompression: json['useImageCompression'] == true,
+      imageCompressionStrength:
+          (json['imageCompressionStrength'] as num?)?.toInt() ?? 45,
       lat: (json['lat'] as num?)?.toDouble(),
       lng: (json['lng'] as num?)?.toDouble(),
-      updatedAt:
-          updatedAtMs is int ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs) : DateTime.now(),
+      updatedAt: updatedAtMs is int
+          ? DateTime.fromMillisecondsSinceEpoch(updatedAtMs)
+          : DateTime.now(),
       isSaving: json['isSaving'] == true,
       uploadTotal: (json['uploadTotal'] as num?)?.toInt() ?? 0,
       uploadCompleted: (json['uploadCompleted'] as num?)?.toInt() ?? 0,
@@ -139,6 +146,8 @@ class TraceDraft {
     String? existingBid,
     DateTime? initialAddTime,
     bool? useManualAddTime,
+    bool? useImageCompression,
+    int? imageCompressionStrength,
     double? lat,
     double? lng,
     DateTime? updatedAt,
@@ -160,6 +169,9 @@ class TraceDraft {
       existingBid: existingBid ?? this.existingBid,
       initialAddTime: initialAddTime ?? this.initialAddTime,
       useManualAddTime: useManualAddTime ?? this.useManualAddTime,
+      useImageCompression: useImageCompression ?? this.useImageCompression,
+      imageCompressionStrength:
+          imageCompressionStrength ?? this.imageCompressionStrength,
       lat: lat ?? this.lat,
       lng: lng ?? this.lng,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -325,8 +337,6 @@ class DraftProvider extends ChangeNotifier {
     required String keepId,
   }) {
     if (existingBid == null || existingBid.isEmpty) return;
-    _drafts.removeWhere(
-      (d) => d.id != keepId && d.existingBid == existingBid,
-    );
+    _drafts.removeWhere((d) => d.id != keepId && d.existingBid == existingBid);
   }
 }

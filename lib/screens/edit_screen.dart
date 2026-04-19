@@ -13,6 +13,8 @@ import '../providers/draft_provider.dart';
 import '../providers/tag_provider.dart';
 import '../providers/trace_provider.dart';
 import '../services/image_service.dart';
+import '../services/image_compression_service.dart';
+import '../services/image_export_service.dart';
 import '../services/trace_service.dart';
 import '../widgets/trace_image.dart';
 
@@ -25,6 +27,8 @@ class EditScreen extends StatefulWidget {
   final String? existingBid;
   final DateTime? initialAddTime;
   final bool initialUseManualAddTime;
+  final bool initialUseImageCompression;
+  final int initialImageCompressionStrength;
   final double? initialLat;
   final double? initialLng;
   final String? draftId;
@@ -39,6 +43,9 @@ class EditScreen extends StatefulWidget {
     this.existingBid,
     this.initialAddTime,
     this.initialUseManualAddTime = false,
+    this.initialUseImageCompression = false,
+    this.initialImageCompressionStrength =
+        TraceImageCompressionService.defaultStrength,
     this.initialLat,
     this.initialLng,
     this.draftId,
@@ -54,6 +61,8 @@ class _EditScreenState extends State<EditScreen> {
   final _titleFocus = FocusNode();
   final _contentFocus = FocusNode();
   final _moreButtonKey = GlobalKey();
+  final _compressionService = TraceImageCompressionService();
+  final _imageExportService = TraceImageExportService();
   final List<XFile> _images = [];
   final _picker = ImagePicker();
   double _lastBottomInset = 0;
@@ -69,8 +78,12 @@ class _EditScreenState extends State<EditScreen> {
   late final double? _initialLat;
   late final double? _initialLng;
   late final DateTime? _initialEffectiveAddTime;
+  late final bool _initialUseImageCompression;
+  late final int _initialImageCompressionStrength;
   bool _useManualAddTime = false;
   DateTime? _manualAddTime;
+  bool _useImageCompression = false;
+  int _imageCompressionStrength = TraceImageCompressionService.defaultStrength;
   bool _saving = false;
   bool _saved = false;
   bool _exitHandled = false;
@@ -89,13 +102,21 @@ class _EditScreenState extends State<EditScreen> {
     _initialContent = (widget.initialContent ?? '').trim();
     _initialTags = List.from(widget.initialTags);
     _initialLocalImagePaths = List.from(widget.initialLocalImagePaths);
-    _initialExistingImageMetaSignatures =
-        widget.initialImageMetas.map(_metaSignature).toList();
+    _initialExistingImageMetaSignatures = widget.initialImageMetas
+        .map(_metaSignature)
+        .toList();
     _initialLat = widget.initialLat;
     _initialLng = widget.initialLng;
     _initialEffectiveAddTime = widget.initialAddTime;
     _useManualAddTime = widget.initialUseManualAddTime;
     _manualAddTime = widget.initialAddTime ?? DateTime.now();
+    _useImageCompression = widget.initialUseImageCompression;
+    _imageCompressionStrength = widget.initialImageCompressionStrength.clamp(
+      0,
+      100,
+    );
+    _initialUseImageCompression = _useImageCompression;
+    _initialImageCompressionStrength = _imageCompressionStrength;
 
     // 恢复原始 GPS
     if (widget.initialLat != null && widget.initialLng != null) {
@@ -173,18 +194,6 @@ class _EditScreenState extends State<EditScreen> {
     return '关闭后保存时自动取当前时间';
   }
 
-  RelativeRect? _buttonRelativeRect(GlobalKey key) {
-    final buttonContext = key.currentContext;
-    if (buttonContext == null) return null;
-    final buttonBox = buttonContext.findRenderObject() as RenderBox?;
-    final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (buttonBox == null || overlayBox == null) return null;
-
-    final offset = buttonBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-    final rect = offset & buttonBox.size;
-    return RelativeRect.fromRect(rect, Offset.zero & overlayBox.size);
-  }
-
   Rect? _buttonRect(GlobalKey key) {
     final buttonContext = key.currentContext;
     if (buttonContext == null) return null;
@@ -196,54 +205,45 @@ class _EditScreenState extends State<EditScreen> {
 
   Future<void> _showMoreMenu() async {
     if (_saving) return;
-    final position = _buttonRelativeRect(_moreButtonKey);
-    if (position == null) return;
+    final anchorRect = _buttonRect(_moreButtonKey);
+    if (anchorRect == null) return;
 
-    final action = await showMenu<String>(
+    final action = await showGeneralDialog<String>(
       context: context,
-      position: position,
-      color: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      items: [
-        PopupMenuItem<String>(
-          value: 'edit_time',
-          padding: EdgeInsets.zero,
-          child: _PopoverMenuCard(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4A6CF7).withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.access_time_rounded,
-                    size: 16,
-                    color: Color(0xFF4A6CF7),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  '修改时间',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFF2F6FF),
-                  ),
-                ),
-              ],
-            ),
-          ),
+      barrierDismissible: true,
+      barrierLabel: '关闭更多菜单',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 140),
+      pageBuilder: (_, __, ___) => _AnchoredPopoverLayout(
+        anchorRect: anchorRect,
+        estimatedHeight: 186,
+        child: _MoreMenuPopover(
+          useImageCompression: _useImageCompression,
+          imageCompressionStrength: _imageCompressionStrength,
         ),
-      ],
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.97, end: 1).animate(curved),
+            alignment: Alignment.topRight,
+            child: child,
+          ),
+        );
+      },
     );
 
-    if (action == 'edit_time' && mounted) {
+    if (!mounted) return;
+    if (action == 'edit_time') {
       await _showEditTimePopover();
+    } else if (action == 'image_compression') {
+      await _showImageCompressionPopover();
     }
   }
 
@@ -296,28 +296,62 @@ class _EditScreenState extends State<EditScreen> {
     });
   }
 
+  Future<void> _showImageCompressionPopover() async {
+    final anchorRect = _buttonRect(_moreButtonKey);
+    if (anchorRect == null) return;
+
+    final files = _images.map((image) => File(image.path)).toList();
+    final result = await showGeneralDialog<_ImageCompressionResult>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '关闭图片压缩',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 160),
+      pageBuilder: (_, __, ___) => _AnchoredPopoverLayout(
+        anchorRect: anchorRect,
+        estimatedHeight: 430,
+        child: _ImageCompressionPopover(
+          initialEnabled: _useImageCompression,
+          initialStrength: _imageCompressionStrength,
+          images: files,
+          compressionService: _compressionService,
+        ),
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+            alignment: Alignment.topRight,
+            child: child,
+          ),
+        );
+      },
+    );
+
+    if (result == null || !mounted) return;
+    setState(() {
+      _useImageCompression = result.enabled;
+      _imageCompressionStrength = result.strength;
+    });
+  }
+
   Future<void> _pickImages() async {
     try {
-      if (PlatformHelper.isMacOS) {
-        final picked = await _picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 85,
-        );
-        if (picked != null && mounted) {
-          setState(() => _images.add(picked));
-        }
-        return;
-      }
-
-      final picked = await _picker.pickMultiImage(imageQuality: 85);
+      final picked = await _picker.pickMultiImage(requestFullMetadata: true);
       if (picked.isNotEmpty && mounted) {
         setState(() => _images.addAll(picked));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打开图片选择失败：$e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('打开图片选择失败：$e')));
     }
   }
 
@@ -350,17 +384,23 @@ class _EditScreenState extends State<EditScreen> {
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings:
-            const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
-      if (mounted) setState(() => _gpsPosition = _GpsData(pos.latitude, pos.longitude));
+      if (mounted) {
+        setState(() => _gpsPosition = _GpsData(pos.latitude, pos.longitude));
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('获取位置失败：$e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('获取位置失败：$e')));
       }
     } finally {
-      if (mounted) setState(() => _fetchingGps = false);
+      if (mounted) {
+        setState(() => _fetchingGps = false);
+      }
     }
   }
 
@@ -371,6 +411,98 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   void _removeTag(String tag) => setState(() => _selectedTags.remove(tag));
+
+  Future<void> _showLocalImageViewer(int initialIndex) async {
+    if (_images.isEmpty) return;
+    final files = _images.map((e) => File(e.path)).toList();
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withValues(alpha: 0.92),
+        pageBuilder: (_, __, ___) => _FullscreenImageViewer(
+          initialIndex: initialIndex,
+          itemCount: files.length,
+          onDownload: (index) async {
+            final saved = await _imageExportService.exportFileWithDialog(
+              sourceFile: files[index],
+            );
+            if (saved == null || !mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('已保存到 ${saved.path}')));
+          },
+          itemBuilder: (context, index) =>
+              Image.file(files[index], fit: BoxFit.contain),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showExistingImageViewer(int initialIndex) async {
+    if (_existingImageMetas.isEmpty) return;
+    final imageService = TraceImageService(context.read<ConnectionProvider>());
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withValues(alpha: 0.92),
+        pageBuilder: (_, __, ___) => _FullscreenImageViewer(
+          initialIndex: initialIndex,
+          itemCount: _existingImageMetas.length,
+          onDownload: (index) async {
+            final meta = _existingImageMetas[index];
+            final bytes = await imageService.loadByCid(
+              cid: meta.cid,
+              encryptionKey: meta.encryptionKey,
+            );
+            if (bytes == null) {
+              throw Exception('图片下载失败');
+            }
+            final saved = await _imageExportService.exportBytesWithDialog(
+              bytes: bytes,
+              preferredName:
+                  'block_trace_image_${DateTime.now().millisecondsSinceEpoch}',
+            );
+            if (saved == null || !mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('已保存到 ${saved.path}')));
+          },
+          itemBuilder: (context, index) {
+            final meta = _existingImageMetas[index];
+            return FutureBuilder<Uint8List?>(
+              future: imageService.loadByCid(
+                cid: meta.cid,
+                encryptionKey: meta.encryptionKey,
+              ),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  );
+                }
+                final bytes = snapshot.data;
+                if (bytes == null) {
+                  return const Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 42,
+                      color: Color(0xFFAFBAD8),
+                    ),
+                  );
+                }
+                return Image.memory(bytes, fit: BoxFit.contain);
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
 
   void _showTagPicker() {
     showModalBottomSheet<void>(
@@ -398,8 +530,7 @@ class _EditScreenState extends State<EditScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: isMacOS ? const Color(0xFF232841) : null,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           '插入图片 BID',
           style: TextStyle(
@@ -411,9 +542,7 @@ class _EditScreenState extends State<EditScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          style: TextStyle(
-            color: isMacOS ? const Color(0xFFF2F6FF) : null,
-          ),
+          style: TextStyle(color: isMacOS ? const Color(0xFFF2F6FF) : null),
           cursorColor: isMacOS ? const Color(0xFF8DA6FF) : null,
           decoration: InputDecoration(
             hintText: '输入图片 BID',
@@ -456,16 +585,15 @@ class _EditScreenState extends State<EditScreen> {
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(
               '取消',
-              style: TextStyle(
-                color: isMacOS ? const Color(0xFFAFBAD8) : null,
-              ),
+              style: TextStyle(color: isMacOS ? const Color(0xFFAFBAD8) : null),
             ),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFF4A6CF7),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('插入'),
@@ -488,222 +616,248 @@ class _EditScreenState extends State<EditScreen> {
       child: Scaffold(
         backgroundColor: bgColor,
         appBar: AppBar(
-        backgroundColor: bgColor,
-        surfaceTintColor: bgColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: isMacOS
-                  ? Colors.white.withValues(alpha: 0.10)
-                  : Colors.black.withValues(alpha: 0.06),
-              shape: BoxShape.circle,
+          backgroundColor: bgColor,
+          surfaceTintColor: bgColor,
+          elevation: 0,
+          leading: IconButton(
+            icon: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: isMacOS
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : Colors.black.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.close_rounded,
+                size: 18,
+                color: isMacOS
+                    ? const Color(0xFFF2F6FF)
+                    : const Color(0xFF1A1A2E),
+              ),
             ),
-            child: Icon(
-              Icons.close_rounded,
-              size: 18,
-              color: isMacOS ? const Color(0xFFF2F6FF) : const Color(0xFF1A1A2E),
-            ),
+            onPressed: _onExitWithoutSaving,
           ),
-          onPressed: _onExitWithoutSaving,
-        ),
-        title: null,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: IconButton(
-              key: _moreButtonKey,
-              onPressed: _showMoreMenu,
-              icon: Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: isMacOS
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : Colors.black.withValues(alpha: 0.06),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.more_horiz_rounded,
-                  size: 18,
-                  color: isMacOS
-                      ? const Color(0xFFF2F6FF)
-                      : const Color(0xFF1A1A2E),
+          title: null,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: IconButton(
+                key: _moreButtonKey,
+                onPressed: _showMoreMenu,
+                icon: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: isMacOS
+                        ? Colors.white.withValues(alpha: 0.10)
+                        : Colors.black.withValues(alpha: 0.06),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.more_horiz_rounded,
+                    size: 18,
+                    color: isMacOS
+                        ? const Color(0xFFF2F6FF)
+                        : const Color(0xFF1A1A2E),
+                  ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: FilledButton(
-              onPressed: _saving ? null : () {
-                print('=== 保存按钮被点击 ===');
-                _onSave();
-              },
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF4A6CF7),
-                disabledBackgroundColor: const Color(0xFF4A6CF7),
-                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 0),
-                minimumSize: const Size(0, 36),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
-              ),
-              child: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+            Padding(
+              padding: const EdgeInsets.only(right: 14),
+              child: FilledButton(
+                onPressed: _saving
+                    ? null
+                    : () {
+                        print('=== 保存按钮被点击 ===');
+                        _onSave();
+                      },
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF4A6CF7),
+                  disabledBackgroundColor: const Color(0xFF4A6CF7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 0,
+                  ),
+                  minimumSize: const Size(0, 36),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text(
+                        '保存',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    )
-                  : const Text('保存',
-                      style: TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
         body: Column(
           children: [
             Expanded(
               child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () =>
-                  FocusScope.of(context).requestFocus(_contentFocus),
-              child: LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                  child: ConstrainedBox(
-                    constraints:
-                        BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 已有图片预览（来自 image_list，只读）
-                        if (_existingImageMetas.isNotEmpty) ...[
-                          _ExistingImageRow(
-                            metas: _existingImageMetas,
-                            imageService: TraceImageService(
-                                context.read<ConnectionProvider>()),
-                            onRemove: (i) => setState(
-                                () => _existingImageMetas.removeAt(i)),
-                          ),
-                          const SizedBox(height: 20),
-                        ],
+                behavior: HitTestBehavior.translucent,
+                onTap: () => FocusScope.of(context).requestFocus(_contentFocus),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 已有图片预览（来自 image_list，只读）
+                          if (_existingImageMetas.isNotEmpty) ...[
+                            _ExistingImageRow(
+                              metas: _existingImageMetas,
+                              imageService: TraceImageService(
+                                context.read<ConnectionProvider>(),
+                              ),
+                              onPreview: _showExistingImageViewer,
+                              onRemove: (i) => setState(
+                                () => _existingImageMetas.removeAt(i),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
 
-                        // 新选图片预览
-                        if (_images.isNotEmpty) ...[
-                          _ImagePreviewRow(
-                              images: _images, onRemove: _removeImage),
-                          const SizedBox(height: 20),
-                        ],
+                          // 新选图片预览
+                          if (_images.isNotEmpty) ...[
+                            _ImagePreviewRow(
+                              images: _images,
+                              onPreview: _showLocalImageViewer,
+                              onRemove: _removeImage,
+                            ),
+                            const SizedBox(height: 20),
+                          ],
 
-                        // GPS 卡片
-                        if (_gpsPosition != null) ...[
-                          _GpsCard(
-                            position: _gpsPosition!,
-                            onRemove: () =>
-                                setState(() => _gpsPosition = null),
-                          ),
-                          const SizedBox(height: 20),
-                        ],
+                          // GPS 卡片
+                          if (_gpsPosition != null) ...[
+                            _GpsCard(
+                              position: _gpsPosition!,
+                              onRemove: () =>
+                                  setState(() => _gpsPosition = null),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
 
-                        // 标签
-                        if (_selectedTags.isNotEmpty) ...[
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: _selectedTags
-                                .map((t) => _SelectedTagChip(
+                          // 标签
+                          if (_selectedTags.isNotEmpty) ...[
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: _selectedTags
+                                  .map(
+                                    (t) => _SelectedTagChip(
                                       tag: t,
                                       onRemove: () => _removeTag(t),
-                                    ))
-                                .toList(),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
 
-                        // 标题
-                        TextField(
-                          controller: _titleCtrl,
-                          focusNode: _titleFocus,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: isMacOS
-                                ? const Color(0xFFF2F6FF)
-                                : const Color(0xFF1A1A2E),
-                            letterSpacing: -0.3,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: '标题',
-                            hintStyle: TextStyle(
+                          // 标题
+                          TextField(
+                            controller: _titleCtrl,
+                            focusNode: _titleFocus,
+                            style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w800,
                               color: isMacOS
-                                  ? const Color(0xFF6C7897)
-                                  : const Color(0xFFD0D0D8),
+                                  ? const Color(0xFFF2F6FF)
+                                  : const Color(0xFF1A1A2E),
                               letterSpacing: -0.3,
                             ),
-                            border: const UnderlineInputBorder(
-                              borderSide: BorderSide.none,
+                            decoration: InputDecoration(
+                              hintText: '标题',
+                              hintStyle: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: isMacOS
+                                    ? const Color(0xFF6C7897)
+                                    : const Color(0xFFD0D0D8),
+                                letterSpacing: -0.3,
+                              ),
+                              border: const UnderlineInputBorder(
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 0,
+                                vertical: 6,
+                              ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 0, vertical: 6),
+                            textInputAction: TextInputAction.next,
+                            onSubmitted: (_) => FocusScope.of(
+                              context,
+                            ).requestFocus(_contentFocus),
                           ),
-                          textInputAction: TextInputAction.next,
-                          onSubmitted: (_) => FocusScope.of(context)
-                              .requestFocus(_contentFocus),
-                        ),
 
-                        const SizedBox(height: 4),
-                        Container(
-                          height: 2,
-                          width: 32,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4A6CF7)
-                                .withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(2),
+                          const SizedBox(height: 4),
+                          Container(
+                            height: 2,
+                            width: 32,
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF4A6CF7,
+                              ).withValues(alpha: 0.4),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
+                          const SizedBox(height: 12),
 
-                        // 内容
-                        TextField(
-                          controller: _contentCtrl,
-                          focusNode: _contentFocus,
-                          maxLines: null,
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: isMacOS
-                                ? const Color(0xFFBCC8E4)
-                                : const Color(0xFF444455),
-                            height: 1.8,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: '写点什么...',
-                            hintStyle: TextStyle(
+                          // 内容
+                          TextField(
+                            controller: _contentCtrl,
+                            focusNode: _contentFocus,
+                            maxLines: null,
+                            style: TextStyle(
                               fontSize: 15,
                               color: isMacOS
-                                  ? const Color(0xFF6C7897)
-                                  : const Color(0xFFD0D0D8),
+                                  ? const Color(0xFFBCC8E4)
+                                  : const Color(0xFF444455),
+                              height: 1.8,
                             ),
-                            border: const UnderlineInputBorder(
-                              borderSide: BorderSide.none,
+                            decoration: InputDecoration(
+                              hintText: '写点什么...',
+                              hintStyle: TextStyle(
+                                fontSize: 15,
+                                color: isMacOS
+                                    ? const Color(0xFF6C7897)
+                                    : const Color(0xFFD0D0D8),
+                              ),
+                              border: const UnderlineInputBorder(
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 0,
+                                vertical: 4,
+                              ),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 0, vertical: 4),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
               ),
             ),
 
@@ -777,6 +931,8 @@ class _EditScreenState extends State<EditScreen> {
       existingBid: widget.existingBid,
       initialAddTime: _effectiveAddTime,
       useManualAddTime: _useManualAddTime,
+      useImageCompression: _useImageCompression,
+      imageCompressionStrength: _imageCompressionStrength,
       lat: _gpsPosition?.latitude,
       lng: _gpsPosition?.longitude,
       updatedAt: DateTime.now(),
@@ -804,7 +960,9 @@ class _EditScreenState extends State<EditScreen> {
     final currentTitle = _titleCtrl.text.trim();
     final currentContent = _contentCtrl.text.trim();
     final currentLocalImagePaths = _images.map((e) => e.path).toList();
-    final currentMetaSignatures = _existingImageMetas.map(_metaSignature).toList();
+    final currentMetaSignatures = _existingImageMetas
+        .map(_metaSignature)
+        .toList();
     final currentLat = _gpsPosition?.latitude;
     final currentLng = _gpsPosition?.longitude;
     final currentAddTimeMs = _effectiveAddTime?.millisecondsSinceEpoch;
@@ -814,8 +972,13 @@ class _EditScreenState extends State<EditScreen> {
         currentContent != _initialContent ||
         !listEquals(_selectedTags, _initialTags) ||
         !listEquals(currentLocalImagePaths, _initialLocalImagePaths) ||
-        !listEquals(currentMetaSignatures, _initialExistingImageMetaSignatures) ||
+        !listEquals(
+          currentMetaSignatures,
+          _initialExistingImageMetaSignatures,
+        ) ||
         currentAddTimeMs != initialAddTimeMs ||
+        _useImageCompression != _initialUseImageCompression ||
+        _imageCompressionStrength != _initialImageCompressionStrength ||
         currentLat != _initialLat ||
         currentLng != _initialLng;
   }
@@ -832,7 +995,9 @@ class _EditScreenState extends State<EditScreen> {
       addTime = _manualAddTime;
     }
 
-    print('=== _onSave called, title=$title, content=$content, images=${_images.length}, gps=$_gpsPosition');
+    print(
+      '=== _onSave called, title=$title, content=$content, images=${_images.length}, gps=$_gpsPosition',
+    );
 
     if (title.isEmpty &&
         content.isEmpty &&
@@ -848,9 +1013,9 @@ class _EditScreenState extends State<EditScreen> {
     final connProvider = context.read<ConnectionProvider>();
     print('=== hasActiveConnection: ${connProvider.hasActiveConnection}');
     if (!connProvider.hasActiveConnection) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先配置节点连接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先配置节点连接')));
       return;
     }
 
@@ -858,11 +1023,15 @@ class _EditScreenState extends State<EditScreen> {
     final traceProvider = context.read<TraceProvider>();
     final draftId = _resolveDraftId(draftProvider);
     final images = _images.map((x) => File(x.path)).toList();
-    final existingImageBids =
-        _existingImageMetas.map((m) => m.bid ?? m.cid).toList();
+    final existingImageBids = _existingImageMetas
+        .map((m) => m.bid ?? m.cid)
+        .toList();
 
     await draftProvider.upsert(_buildDraftWithId(draftId: draftId));
-    await draftProvider.markSavingStart(id: draftId, uploadTotal: images.length);
+    await draftProvider.markSavingStart(
+      id: draftId,
+      uploadTotal: images.length,
+    );
     if (mounted) {
       setState(() => _saving = true);
     }
@@ -884,6 +1053,8 @@ class _EditScreenState extends State<EditScreen> {
         latitude: _gpsPosition?.latitude,
         longitude: _gpsPosition?.longitude,
         addTime: addTime,
+        useImageCompression: _useImageCompression,
+        imageCompressionStrength: _imageCompressionStrength,
       ),
     );
 
@@ -905,41 +1076,52 @@ class _EditScreenState extends State<EditScreen> {
     required double? latitude,
     required double? longitude,
     required DateTime? addTime,
+    required bool useImageCompression,
+    required int imageCompressionStrength,
   }) async {
     try {
       final service = TraceService(connProvider);
+      var uploadImages = images;
+      try {
+        final preparedImages = await _compressionService.prepareForUpload(
+          images: images,
+          enabled: useImageCompression,
+          strength: imageCompressionStrength,
+        );
+        uploadImages = preparedImages.files;
+      } catch (e) {
+        debugPrint('prepareForUpload fallback to original images: $e');
+      }
       await service.saveTrace(
         title: title,
         content: content,
         tags: tags,
-        images: images,
+        images: uploadImages,
         existingImageBids: existingImageBids,
         latitude: latitude,
         longitude: longitude,
         addTime: addTime,
         existingBid: widget.existingBid,
-        onImageProgress: ({
-          required int total,
-          required int completed,
-          int? uploadingIndex,
-          required bool fromCache,
-        }) {
-          draftProvider.markSavingProgress(
-            id: draftId,
-            completed: completed,
-            total: total,
-            uploadingIndex: uploadingIndex,
-          );
-        },
+        onImageProgress:
+            ({
+              required int total,
+              required int completed,
+              int? uploadingIndex,
+              required bool fromCache,
+            }) {
+              draftProvider.markSavingProgress(
+                id: draftId,
+                completed: completed,
+                total: total,
+                uploadingIndex: uploadingIndex,
+              );
+            },
       );
       await draftProvider.remove(draftId);
       await traceProvider.refresh();
     } catch (e) {
       print('=== saveTrace error: $e');
-      await draftProvider.markSavingFailed(
-        id: draftId,
-        error: e.toString(),
-      );
+      await draftProvider.markSavingFailed(id: draftId, error: e.toString());
     }
   }
 }
@@ -963,10 +1145,10 @@ class _GpsCard extends StatelessWidget {
             : const Color(0xFFEEF2FF),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-            color: (isMacOS
-                    ? Colors.white
-                    : const Color(0xFF4A6CF7))
-                .withValues(alpha: isMacOS ? 0.16 : 0.2)),
+          color: (isMacOS ? Colors.white : const Color(0xFF4A6CF7)).withValues(
+            alpha: isMacOS ? 0.16 : 0.2,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -974,24 +1156,31 @@ class _GpsCard extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFF4A6CF7)
-                  .withValues(alpha: isMacOS ? 0.18 : 0.12),
+              color: const Color(
+                0xFF4A6CF7,
+              ).withValues(alpha: isMacOS ? 0.18 : 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.location_on_rounded,
-                size: 18, color: Color(0xFF4A6CF7)),
+            child: const Icon(
+              Icons.location_on_rounded,
+              size: 18,
+              color: Color(0xFF4A6CF7),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('当前位置',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: isMacOS ? Color(0xFF8DA6FF) : Color(0xFF4A6CF7),
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4)),
+                Text(
+                  '当前位置',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isMacOS ? Color(0xFF8DA6FF) : Color(0xFF4A6CF7),
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4,
+                  ),
+                ),
                 const SizedBox(height: 2),
                 Text(
                   '${position.latitude.toStringAsFixed(6)},  ${position.longitude.toStringAsFixed(6)}',
@@ -1018,7 +1207,9 @@ class _GpsCard extends StatelessWidget {
               child: Icon(
                 Icons.close_rounded,
                 size: 14,
-                color: isMacOS ? const Color(0xFFAFBAD8) : const Color(0xFF666680),
+                color: isMacOS
+                    ? const Color(0xFFAFBAD8)
+                    : const Color(0xFF666680),
               ),
             ),
           ),
@@ -1032,9 +1223,14 @@ class _GpsCard extends StatelessWidget {
 
 class _ImagePreviewRow extends StatelessWidget {
   final List<XFile> images;
+  final void Function(int) onPreview;
   final void Function(int) onRemove;
 
-  const _ImagePreviewRow({required this.images, required this.onRemove});
+  const _ImagePreviewRow({
+    required this.images,
+    required this.onPreview,
+    required this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1046,13 +1242,16 @@ class _ImagePreviewRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, index) => Stack(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.file(
-                File(images[index].path),
-                width: 110,
-                height: 110,
-                fit: BoxFit.cover,
+            GestureDetector(
+              onTap: () => onPreview(index),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(
+                  File(images[index].path),
+                  width: 110,
+                  height: 110,
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
             Positioned(
@@ -1063,7 +1262,8 @@ class _ImagePreviewRow extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(12)),
+                    top: Radius.circular(12),
+                  ),
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -1087,8 +1287,11 @@ class _ImagePreviewRow extends StatelessWidget {
                     color: Colors.black.withValues(alpha: 0.5),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.close_rounded,
-                      size: 13, color: Colors.white),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 13,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -1106,6 +1309,16 @@ class _EditTimeResult {
   const _EditTimeResult({
     required this.useManualAddTime,
     required this.manualAddTime,
+  });
+}
+
+class _ImageCompressionResult {
+  final bool enabled;
+  final int strength;
+
+  const _ImageCompressionResult({
+    required this.enabled,
+    required this.strength,
   });
 }
 
@@ -1128,7 +1341,8 @@ class _AnchoredPopoverLayout extends StatelessWidget {
     final media = MediaQuery.of(context);
     final maxLeft = media.size.width - width - margin;
     final left = (anchorRect.right - width).clamp(margin, maxLeft);
-    final spaceBelow = media.size.height - media.padding.bottom - anchorRect.bottom;
+    final spaceBelow =
+        media.size.height - media.padding.bottom - anchorRect.bottom;
     final showBelow = spaceBelow >= estimatedHeight + gap + margin;
     final top = showBelow
         ? anchorRect.bottom + gap
@@ -1138,46 +1352,607 @@ class _AnchoredPopoverLayout extends StatelessWidget {
           );
 
     return Stack(
-      children: [
-        Positioned(
-          left: left,
-          top: top,
-          width: width,
-          child: child,
-        ),
-      ],
+      children: [Positioned(left: left, top: top, width: width, child: child)],
     );
   }
 }
 
-class _PopoverMenuCard extends StatelessWidget {
-  final Widget child;
+class _ImageCompressionPopover extends StatefulWidget {
+  final bool initialEnabled;
+  final int initialStrength;
+  final List<File> images;
+  final TraceImageCompressionService compressionService;
 
-  const _PopoverMenuCard({required this.child});
+  const _ImageCompressionPopover({
+    required this.initialEnabled,
+    required this.initialStrength,
+    required this.images,
+    required this.compressionService,
+  });
+
+  @override
+  State<_ImageCompressionPopover> createState() =>
+      _ImageCompressionPopoverState();
+}
+
+class _ImageCompressionPopoverState extends State<_ImageCompressionPopover> {
+  late bool _enabled;
+  late double _strength;
+  TraceImageCompressionEstimate? _estimate;
+  bool _estimating = false;
+  String? _estimateError;
+  int _estimateTicket = 0;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = widget.initialEnabled;
+    _strength = widget.initialStrength.toDouble();
+    _refreshEstimate(immediate: true);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refreshEstimate({bool immediate = false}) async {
+    _debounce?.cancel();
+    final ticket = ++_estimateTicket;
+
+    Future<void> run() async {
+      if (!mounted) return;
+      setState(() {
+        _estimating = true;
+        _estimateError = null;
+      });
+
+      try {
+        final estimate = await widget.compressionService.estimate(
+          images: widget.images,
+          enabled: _enabled,
+          strength: _strength.round(),
+        );
+        if (!mounted || ticket != _estimateTicket) return;
+        setState(() {
+          _estimate = estimate;
+          _estimating = false;
+        });
+      } catch (e) {
+        if (!mounted || ticket != _estimateTicket) return;
+        setState(() {
+          _estimateError = e.toString();
+          _estimating = false;
+        });
+      }
+    }
+
+    if (immediate) {
+      await run();
+    } else {
+      _debounce = Timer(const Duration(milliseconds: 220), run);
+    }
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(
+      _ImageCompressionResult(enabled: _enabled, strength: _strength.round()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final plan = widget.compressionService.planForStrength(_strength.round());
+    final estimate = _estimate;
+    final originalText = estimate == null
+        ? '--'
+        : _formatByteSize(estimate.originalBytes);
+    final resultText = estimate == null
+        ? '--'
+        : _formatByteSize(estimate.resultBytes);
+    final savedText = estimate == null
+        ? '--'
+        : '${(estimate.savedRatio * 100).clamp(0, 100).toStringAsFixed(0)}%';
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF232841).withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 32,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '图片压缩',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFFF2F6FF),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _enabled
+                      ? '保存前压缩新添加的本地图片，保留 EXIF/GPS 等元数据'
+                      : '关闭后将上传原图，不会额外压缩',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF9BA9CC),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      _SegmentButton(
+                        label: '关闭',
+                        selected: !_enabled,
+                        onTap: () {
+                          setState(() => _enabled = false);
+                          _refreshEstimate();
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      _SegmentButton(
+                        label: '开启',
+                        selected: _enabled,
+                        onTap: () {
+                          setState(() => _enabled = true);
+                          _refreshEstimate();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            '默认策略',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF8E9CBE),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF59C3A5,
+                              ).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              plan.label,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF7DE6C7),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        plan.detail,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFF2F6FF),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '仅压缩 JPG/JPEG/HEIC/HEIF 新图；其他格式会自动跳过，避免丢失元数据或透明信息。',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.45,
+                          color: Color(0xFFAFBAD8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Opacity(
+                  opacity: _enabled ? 1 : 0.55,
+                  child: IgnorePointer(
+                    ignoring: !_enabled,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              '压缩强度',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFF2F6FF),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${_strength.round()}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF8DA6FF),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: const Color(0xFF4A6CF7),
+                            inactiveTrackColor: Colors.white.withValues(
+                              alpha: 0.10,
+                            ),
+                            thumbColor: const Color(0xFF8DA6FF),
+                            overlayColor: const Color(
+                              0xFF8DA6FF,
+                            ).withValues(alpha: 0.16),
+                            trackHeight: 4,
+                          ),
+                          child: Slider(
+                            value: _strength,
+                            min: 0,
+                            max: 100,
+                            divisions: 20,
+                            label: '${_strength.round()}',
+                            onChanged: (value) {
+                              setState(() => _strength = value);
+                              _refreshEstimate();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '体积预估',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFF2F6FF),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (widget.images.isEmpty)
+                        const Text(
+                          '当前还没有新添加的本地图片，添加后这里会显示原始大小和预计上传大小。',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.45,
+                            color: Color(0xFFAFBAD8),
+                          ),
+                        )
+                      else if (_estimating)
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF8DA6FF),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            const Text(
+                              '正在计算预计压缩后大小...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFFAFBAD8),
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (_estimateError != null)
+                        Text(
+                          '预估失败：$_estimateError',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFFFA2A2),
+                          ),
+                        )
+                      else ...[
+                        _MetricRow(label: '原始大小', value: originalText),
+                        const SizedBox(height: 8),
+                        _MetricRow(
+                          label: '预计上传',
+                          value: resultText,
+                          accent: _enabled,
+                        ),
+                        const SizedBox(height: 8),
+                        _MetricRow(
+                          label: '预计节省',
+                          value: _enabled ? savedText : '0%',
+                          accent: _enabled,
+                        ),
+                        if (estimate != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            '本次新图 ${widget.images.length} 张，其中可安全压缩 ${estimate.eligibleCount} 张，跳过 ${estimate.skippedCount} 张。',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              height: 1.45,
+                              color: Color(0xFF8E9CBE),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        '取消',
+                        style: TextStyle(color: Color(0xFFAFBAD8)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF4A6CF7),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('完成'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreMenuPopover extends StatelessWidget {
+  final bool useImageCompression;
+  final int imageCompressionStrength;
+
+  const _MoreMenuPopover({
+    required this.useImageCompression,
+    required this.imageCompressionStrength,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF232841).withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.10),
+        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF20253C).withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.30),
+                  blurRadius: 34,
+                  offset: const Offset(0, 16),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: 28,
-                offset: const Offset(0, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(8, 2, 8, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        '更多',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                          color: Color(0xFF8E9CBE),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _MoreMenuItem(
+                  icon: Icons.photo_size_select_large_rounded,
+                  iconColor: const Color(0xFF59C3A5),
+                  iconBackground: const Color(
+                    0xFF59C3A5,
+                  ).withValues(alpha: 0.16),
+                  title: '图片压缩',
+                  subtitle: useImageCompression
+                      ? '已开启 · 强度 $imageCompressionStrength'
+                      : '默认关闭',
+                  onTap: () => Navigator.of(context).pop('image_compression'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Divider(
+                    height: 12,
+                    thickness: 1,
+                    color: Colors.white.withValues(alpha: 0.06),
+                  ),
+                ),
+                _MoreMenuItem(
+                  icon: Icons.access_time_rounded,
+                  iconColor: const Color(0xFF7F95FF),
+                  iconBackground: const Color(
+                    0xFF4A6CF7,
+                  ).withValues(alpha: 0.16),
+                  title: '修改时间',
+                  subtitle: '调整记录时间',
+                  onTap: () => Navigator.of(context).pop('edit_time'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreMenuItem extends StatefulWidget {
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBackground;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _MoreMenuItem({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBackground,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  State<_MoreMenuItem> createState() => _MoreMenuItemState();
+}
+
+class _MoreMenuItemState extends State<_MoreMenuItem> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = _hovered || _pressed;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: active
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: widget.iconBackground,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(widget.icon, size: 20, color: widget.iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF3F6FF),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      widget.subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF8E9CBE),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedOpacity(
+                duration: const Duration(milliseconds: 120),
+                opacity: active ? 1 : 0.5,
+                child: const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: Color(0xFF7081A9),
+                ),
               ),
             ],
           ),
-          child: child,
         ),
       ),
     );
@@ -1260,9 +2035,7 @@ class _EditTimePopoverState extends State<_EditTimePopover> {
             decoration: BoxDecoration(
               color: const Color(0xFF232841).withValues(alpha: 0.94),
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.28),
@@ -1288,8 +2061,8 @@ class _EditTimePopoverState extends State<_EditTimePopover> {
                   _useManualAddTime
                       ? '手动时间 ${widget.formatTime(_manualAddTime)}'
                       : (widget.originalAddTime != null
-                          ? '当前为原时间 ${widget.formatTime(widget.originalAddTime!)}'
-                          : '当前为自动时间'),
+                            ? '当前为原时间 ${widget.formatTime(widget.originalAddTime!)}'
+                            : '当前为自动时间'),
                   style: TextStyle(
                     fontSize: 12,
                     color: const Color(0xFF9BA9CC),
@@ -1331,9 +2104,7 @@ class _EditTimePopoverState extends State<_EditTimePopover> {
                     focusNode: _timeFocus,
                     autofocus: true,
                     keyboardType: TextInputType.datetime,
-                    style: TextStyle(
-                      color: const Color(0xFFF2F6FF),
-                    ),
+                    style: TextStyle(color: const Color(0xFFF2F6FF)),
                     decoration: InputDecoration(
                       hintText: 'YYYY-MM-DD HH:mm',
                       errorText: _errorText,
@@ -1357,8 +2128,7 @@ class _EditTimePopoverState extends State<_EditTimePopover> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide:
-                            const BorderSide(color: Color(0xFF8DA6FF)),
+                        borderSide: const BorderSide(color: Color(0xFF8DA6FF)),
                       ),
                     ),
                     onChanged: (_) {
@@ -1396,9 +2166,7 @@ class _EditTimePopoverState extends State<_EditTimePopover> {
                       onPressed: () => Navigator.of(context).pop(),
                       child: Text(
                         '取消',
-                        style: TextStyle(
-                          color: const Color(0xFFAFBAD8),
-                        ),
+                        style: TextStyle(color: const Color(0xFFAFBAD8)),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1475,6 +2243,206 @@ class _SegmentButton extends StatelessWidget {
   }
 }
 
+class _MetricRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool accent;
+
+  const _MetricRow({
+    required this.label,
+    required this.value,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Color(0xFF8E9CBE)),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: accent ? const Color(0xFF7DE6C7) : const Color(0xFFF2F6FF),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String _formatByteSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(bytes < 10 * 1024 ? 1 : 0)} KB';
+  }
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+}
+
+class _FullscreenImageViewer extends StatefulWidget {
+  final int initialIndex;
+  final int itemCount;
+  final Widget Function(BuildContext context, int index) itemBuilder;
+  final Future<void> Function(int index)? onDownload;
+
+  const _FullscreenImageViewer({
+    required this.initialIndex,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.onDownload,
+  });
+
+  @override
+  State<_FullscreenImageViewer> createState() => _FullscreenImageViewerState();
+}
+
+class _FullscreenImageViewerState extends State<_FullscreenImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+  bool _downloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black.withValues(alpha: 0.94),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pageController,
+              itemCount: widget.itemCount,
+              onPageChanged: (index) => setState(() => _currentIndex = index),
+              itemBuilder: (context, index) => Center(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: widget.itemBuilder(context, index),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${_currentIndex + 1} / ${widget.itemCount}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 12,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            if (widget.onDownload != null)
+              Positioned(
+                right: 18,
+                bottom: 22,
+                child: FilledButton.icon(
+                  onPressed: _downloading
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.maybeOf(context);
+                          setState(() => _downloading = true);
+                          try {
+                            await widget.onDownload!(_currentIndex);
+                          } catch (e) {
+                            debugPrint('image download failed: $e');
+                            messenger?.showSnackBar(
+                              SnackBar(content: Text('下载失败：$e')),
+                            );
+                          } finally {
+                            if (mounted) {
+                              setState(() => _downloading = false);
+                            }
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.48),
+                    disabledBackgroundColor: Colors.black.withValues(
+                      alpha: 0.35,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                  icon: _downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.download_rounded,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                  label: Text(
+                    _downloading ? '下载中' : '下载',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── 底部工具栏 ────────────────────────────────────────────────
 
 class _Toolbar extends StatelessWidget {
@@ -1508,9 +2476,7 @@ class _Toolbar extends StatelessWidget {
       ),
       child: Container(
         decoration: BoxDecoration(
-          color: isMacOS
-              ? Colors.white.withValues(alpha: 0.07)
-              : Colors.white,
+          color: isMacOS ? Colors.white.withValues(alpha: 0.07) : Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: isMacOS
               ? Border.all(color: Colors.white.withValues(alpha: 0.14))
@@ -1533,22 +2499,22 @@ class _Toolbar extends StatelessWidget {
         child: Row(
           children: [
             _ToolbarBtn(
-                icon: Icons.upload_rounded,
-                label: '上传图片',
-                onTap: onPickImage),
+              icon: Icons.upload_rounded,
+              label: '上传图片',
+              onTap: onPickImage,
+            ),
             _ToolbarBtn(
-                icon: Icons.image_search_rounded,
-                label: '插入图片',
-                onTap: onInsertBid),
+              icon: Icons.image_search_rounded,
+              label: '插入图片',
+              onTap: onInsertBid,
+            ),
             _ToolbarBtn(
-                icon: Icons.location_on_rounded,
-                label: 'GPS',
-                onTap: onGps ?? () {},
-                loading: fetchingGps),
-            _ToolbarBtn(
-                icon: Icons.label_rounded,
-                label: '标签',
-                onTap: onTag),
+              icon: Icons.location_on_rounded,
+              label: 'GPS',
+              onTap: onGps ?? () {},
+              loading: fetchingGps,
+            ),
+            _ToolbarBtn(icon: Icons.label_rounded, label: '标签', onTap: onTag),
           ],
         ),
       ),
@@ -1584,7 +2550,9 @@ class _ToolbarBtn extends StatelessWidget {
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Color(0xFF4A6CF7)),
+                      strokeWidth: 2,
+                      color: Color(0xFF4A6CF7),
+                    ),
                   )
                 : Container(
                     width: 38,
@@ -1595,11 +2563,13 @@ class _ToolbarBtn extends StatelessWidget {
                           : const Color(0xFFF0F2FF),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(icon,
-                        size: 20,
-                        color: isMacOS
-                            ? const Color(0xFF8DA6FF)
-                            : const Color(0xFF4A6CF7)),
+                    child: Icon(
+                      icon,
+                      size: 20,
+                      color: isMacOS
+                          ? const Color(0xFF8DA6FF)
+                          : const Color(0xFF4A6CF7),
+                    ),
                   ),
           ),
         ),
@@ -1648,10 +2618,7 @@ class _TagPickerSheet extends StatefulWidget {
   final List<String> selectedTags;
   final void Function(String) onAdd;
 
-  const _TagPickerSheet({
-    required this.selectedTags,
-    required this.onAdd,
-  });
+  const _TagPickerSheet({required this.selectedTags, required this.onAdd});
 
   @override
   State<_TagPickerSheet> createState() => _TagPickerSheetState();
@@ -1684,16 +2651,19 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
     final allTags = context.watch<TagProvider>().tags;
     final query = _ctrl.text.trim().toLowerCase();
     final suggestions = allTags
-        .where((t) =>
-            !widget.selectedTags.contains(t) &&
-            (query.isEmpty || t.toLowerCase().contains(query)))
+        .where(
+          (t) =>
+              !widget.selectedTags.contains(t) &&
+              (query.isEmpty || t.toLowerCase().contains(query)),
+        )
         .toList();
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 150),
       curve: Curves.easeOut,
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         decoration: BoxDecoration(
           color: isMacOS ? const Color(0xFF232841) : Colors.white,
@@ -1719,15 +2689,23 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
                 controller: _ctrl,
                 focusNode: _focus,
                 style: TextStyle(
-                    fontSize: 15,
-                    color: isMacOS ? const Color(0xFFF2F6FF) : const Color(0xFF1A1A2E)),
+                  fontSize: 15,
+                  color: isMacOS
+                      ? const Color(0xFFF2F6FF)
+                      : const Color(0xFF1A1A2E),
+                ),
                 decoration: InputDecoration(
                   hintText: '输入或选择标签',
                   hintStyle: TextStyle(
-                    color: isMacOS ? const Color(0xFF7986A7) : const Color(0xFFCCCCCC),
+                    color: isMacOS
+                        ? const Color(0xFF7986A7)
+                        : const Color(0xFFCCCCCC),
                   ),
-                  prefixIcon: const Icon(Icons.label_rounded,
-                      size: 18, color: Color(0xFF4A6CF7)),
+                  prefixIcon: const Icon(
+                    Icons.label_rounded,
+                    size: 18,
+                    color: Color(0xFF4A6CF7),
+                  ),
                   filled: true,
                   fillColor: isMacOS
                       ? Colors.white.withValues(alpha: 0.08)
@@ -1739,8 +2717,10 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
                   isDense: true,
                   suffixIcon: _ctrl.text.trim().isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.add_rounded,
-                              color: Color(0xFF4A6CF7)),
+                          icon: const Icon(
+                            Icons.add_rounded,
+                            color: Color(0xFF4A6CF7),
+                          ),
                           onPressed: () => widget.onAdd(_ctrl.text),
                         )
                       : null,
@@ -1758,25 +2738,35 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
                 child: ListView.builder(
                   shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   itemCount: suggestions.length,
                   itemBuilder: (_, i) => InkWell(
                     onTap: () => widget.onAdd(suggestions[i]),
                     borderRadius: BorderRadius.circular(10),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 11),
+                        horizontal: 12,
+                        vertical: 11,
+                      ),
                       child: Row(
                         children: [
-                          const Icon(Icons.label_rounded,
-                              size: 15, color: Color(0xFF4A6CF7)),
+                          const Icon(
+                            Icons.label_rounded,
+                            size: 15,
+                            color: Color(0xFF4A6CF7),
+                          ),
                           const SizedBox(width: 10),
-                          Text('# ${suggestions[i]}',
-                              style: TextStyle(
-                                  fontSize: 14,
-                                  color: isMacOS
-                                      ? const Color(0xFFF2F6FF)
-                                      : const Color(0xFF1A1A2E))),
+                          Text(
+                            '# ${suggestions[i]}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isMacOS
+                                  ? const Color(0xFFF2F6FF)
+                                  : const Color(0xFF1A1A2E),
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1796,11 +2786,13 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
 class _ExistingImageRow extends StatelessWidget {
   final List<ImageMeta> metas;
   final TraceImageService imageService;
+  final void Function(int) onPreview;
   final void Function(int) onRemove;
 
   const _ExistingImageRow({
     required this.metas,
     required this.imageService,
+    required this.onPreview,
     required this.onRemove,
   });
 
@@ -1817,24 +2809,30 @@ class _ExistingImageRow extends StatelessWidget {
           final meta = metas[index];
           return Stack(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  width: 110,
-                  height: 110,
-                  child: meta.cid.isNotEmpty
-                      ? TraceImage(
-                          cid: meta.cid,
-                          encryptionKey: meta.encryptionKey,
-                          imageService: imageService,
-                        )
-                      : Container(
-                          color: isMacOS
-                              ? Colors.white.withValues(alpha: 0.08)
-                              : const Color(0xFFF0F0F5),
-                          child: const Icon(Icons.image_outlined,
-                              size: 32, color: Color(0xFFCCCCCC)),
-                        ),
+              GestureDetector(
+                onTap: () => onPreview(index),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 110,
+                    height: 110,
+                    child: meta.cid.isNotEmpty
+                        ? TraceImage(
+                            cid: meta.cid,
+                            encryptionKey: meta.encryptionKey,
+                            imageService: imageService,
+                          )
+                        : Container(
+                            color: isMacOS
+                                ? Colors.white.withValues(alpha: 0.08)
+                                : const Color(0xFFF0F0F5),
+                            child: const Icon(
+                              Icons.image_outlined,
+                              size: 32,
+                              color: Color(0xFFCCCCCC),
+                            ),
+                          ),
+                  ),
                 ),
               ),
               Positioned(
@@ -1849,8 +2847,11 @@ class _ExistingImageRow extends StatelessWidget {
                       color: Colors.black.withValues(alpha: 0.5),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close_rounded,
-                        size: 13, color: Colors.white),
+                    child: const Icon(
+                      Icons.close_rounded,
+                      size: 13,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),

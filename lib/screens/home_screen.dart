@@ -184,10 +184,7 @@ class _MacSidebarState extends State<_MacSidebar> {
         children: [
           // 仅顶部区域可拖拽窗口，避免菜单点击被拖拽手势延迟
           const DragToMoveArea(
-            child: SizedBox(
-              height: 28,
-              width: double.infinity,
-            ),
+            child: SizedBox(height: 28, width: double.infinity),
           ),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -256,7 +253,8 @@ class _MacSidebarState extends State<_MacSidebar> {
             icon: Icons.all_inclusive_rounded,
             label: '全部痕迹',
             isAll: true,
-            selected: widget.currentView == _SidebarView.timeline &&
+            selected:
+                widget.currentView == _SidebarView.timeline &&
                 context.watch<TraceProvider>().activeTag == null,
             onAfterSelect: widget.onShowTimeline,
           ),
@@ -277,7 +275,8 @@ class _MacSidebarState extends State<_MacSidebar> {
                     final tag = tags[index];
                     return _MacTagItem(
                       tag: tag,
-                      selected: widget.currentView == _SidebarView.timeline &&
+                      selected:
+                          widget.currentView == _SidebarView.timeline &&
                           context.watch<TraceProvider>().activeTag == tag,
                       onAfterSelect: widget.onShowTimeline,
                     );
@@ -412,7 +411,6 @@ class _MacSidebarState extends State<_MacSidebar> {
               ),
             ),
           ),
-
         ],
       ),
     );
@@ -537,8 +535,10 @@ class _OverviewCard extends StatelessWidget {
                   right: 0,
                   top: 0,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(999),
@@ -842,7 +842,7 @@ class _MacTagItem extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(12),
-          child: InkWell(
+        child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () {
             context.read<TraceProvider>().setTag(selected ? null : tag);
@@ -880,9 +880,7 @@ class _MacTagItem extends StatelessWidget {
                     '# $tag',
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: selected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                       color: selected
                           ? const Color(0xFF4A6CF7)
                           : Colors.white.withValues(alpha: 0.8),
@@ -1222,7 +1220,9 @@ class _DraftsContent extends StatelessWidget {
           itemCount: drafts.length,
           itemBuilder: (context, index) {
             final draft = drafts[index];
-            final title = draft.title.trim().isEmpty ? '未命名草稿' : draft.title.trim();
+            final title = draft.title.trim().isEmpty
+                ? '未命名草稿'
+                : draft.title.trim();
             final subtitle = draft.content.trim().isEmpty
                 ? '无正文'
                 : draft.content.trim().replaceAll('\n', ' ');
@@ -1242,9 +1242,7 @@ class _DraftsContent extends StatelessWidget {
                   onTap: () async {
                     if (draft.isSaving) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('该草稿正在上传保存中，暂时不可编辑'),
-                        ),
+                        const SnackBar(content: Text('该草稿正在上传保存中，暂时不可编辑')),
                       );
                       return;
                     }
@@ -1253,15 +1251,21 @@ class _DraftsContent extends StatelessWidget {
                       MaterialPageRoute(
                         builder: (_) => EditScreen(
                           draftId: draft.id,
-                          initialTitle: draft.title.isEmpty ? null : draft.title,
-                          initialContent:
-                              draft.content.isEmpty ? null : draft.content,
+                          initialTitle: draft.title.isEmpty
+                              ? null
+                              : draft.title,
+                          initialContent: draft.content.isEmpty
+                              ? null
+                              : draft.content,
                           initialTags: draft.tags,
                           initialLocalImagePaths: draft.localImagePaths,
                           initialImageMetas: draft.existingImageMetas,
                           existingBid: draft.existingBid,
                           initialAddTime: draft.initialAddTime,
                           initialUseManualAddTime: draft.useManualAddTime,
+                          initialUseImageCompression: draft.useImageCompression,
+                          initialImageCompressionStrength:
+                              draft.imageCompressionStrength,
                           initialLat: draft.lat,
                           initialLng: draft.lng,
                         ),
@@ -1276,7 +1280,9 @@ class _DraftsContent extends StatelessWidget {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
                       color: Colors.white.withValues(alpha: 0.06),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1285,7 +1291,9 @@ class _DraftsContent extends StatelessWidget {
                           width: 34,
                           height: 34,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF8DA6FF).withValues(alpha: 0.18),
+                            color: const Color(
+                              0xFF8DA6FF,
+                            ).withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(
@@ -1352,8 +1360,9 @@ class _DraftsContent extends StatelessWidget {
                         IconButton(
                           tooltip: '删除草稿',
                           visualDensity: VisualDensity.compact,
-                          onPressed:
-                              draft.isSaving ? null : () => provider.remove(draft.id),
+                          onPressed: draft.isSaving
+                              ? null
+                              : () => provider.remove(draft.id),
                           icon: Icon(
                             Icons.delete_outline_rounded,
                             size: 18,
@@ -1896,10 +1905,8 @@ class _MobileHomeScreenState extends State<_MobileHomeScreen> {
                               ),
                             );
                           },
-                          onLongPress: () => _showCardOptions(
-                            context,
-                            provider.blocks[index],
-                          ),
+                          onLongPress: () =>
+                              _showCardOptions(context, provider.blocks[index]),
                           child: _buildCard(item),
                         ),
                       );

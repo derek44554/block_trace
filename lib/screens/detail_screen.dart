@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:block_flutter/block_flutter.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,8 @@ import '../models/block_item.dart';
 import '../core/platform_helper.dart';
 import '../providers/draft_provider.dart';
 import '../providers/trace_provider.dart';
+import '../services/image_compression_service.dart';
+import '../services/image_export_service.dart';
 import '../services/image_service.dart';
 import '../widgets/trace_image.dart';
 import 'edit_screen.dart';
@@ -131,6 +135,7 @@ class DetailScreen extends StatefulWidget {
 
 class _DetailScreenState extends State<DetailScreen> {
   late BlockModel _block;
+  final _imageExportService = TraceImageExportService();
 
   @override
   void initState() {
@@ -184,6 +189,73 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  Future<void> _showImageViewer(
+    List<ImageMeta> imageMetas,
+    int initialIndex,
+  ) async {
+    if (imageMetas.isEmpty) return;
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: Colors.black.withValues(alpha: 0.92),
+        pageBuilder: (_, __, ___) => _DetailFullscreenImageViewer(
+          initialIndex: initialIndex,
+          itemCount: imageMetas.length,
+          onDownload: (index) async {
+            final meta = imageMetas[index];
+            final bytes = await widget.imageService.loadByCid(
+              cid: meta.cid,
+              encryptionKey: meta.encryptionKey,
+            );
+            if (bytes == null) {
+              throw Exception('图片下载失败');
+            }
+            final saved = await _imageExportService.exportBytesWithDialog(
+              bytes: bytes,
+              preferredName:
+                  'block_trace_image_${DateTime.now().millisecondsSinceEpoch}',
+            );
+            if (saved == null || !mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('已保存到 ${saved.path}')));
+          },
+          itemBuilder: (context, index) {
+            final meta = imageMetas[index];
+            return FutureBuilder<Uint8List?>(
+              future: widget.imageService.loadByCid(
+                cid: meta.cid,
+                encryptionKey: meta.encryptionKey,
+              ),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  );
+                }
+                final bytes = snapshot.data;
+                if (bytes == null) {
+                  return const Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 42,
+                      color: Color(0xFFAFBAD8),
+                    ),
+                  );
+                }
+                return Image.memory(bytes, fit: BoxFit.contain);
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = _parse();
@@ -234,10 +306,17 @@ class _DetailScreenState extends State<DetailScreen> {
                       initialTitle: draft != null ? draft.title : d.title,
                       initialContent: draft != null ? draft.content : d.content,
                       initialTags: draft?.tags ?? d.tags,
-                      initialLocalImagePaths: draft?.localImagePaths ?? const [],
-                      initialImageMetas: draft?.existingImageMetas ?? d.imageMetas,
+                      initialLocalImagePaths:
+                          draft?.localImagePaths ?? const [],
+                      initialImageMetas:
+                          draft?.existingImageMetas ?? d.imageMetas,
                       initialAddTime: draft?.initialAddTime ?? d.createdAt,
                       initialUseManualAddTime: draft?.useManualAddTime ?? false,
+                      initialUseImageCompression:
+                          draft?.useImageCompression ?? false,
+                      initialImageCompressionStrength:
+                          draft?.imageCompressionStrength ??
+                          TraceImageCompressionService.defaultStrength,
                       existingBid: d.bid.isNotEmpty ? d.bid : null,
                       initialLat: draft?.lat ?? d.lat,
                       initialLng: draft?.lng ?? d.lng,
@@ -295,6 +374,8 @@ class _DetailScreenState extends State<DetailScreen> {
                       imageMetas: d.imageMetas,
                       imageService: widget.imageService,
                       palette: palette,
+                      onPreview: (index) =>
+                          _showImageViewer(d.imageMetas, index),
                     ),
                     const SizedBox(height: 20),
                   ],
@@ -492,11 +573,13 @@ class _HorizontalImageRow extends StatelessWidget {
   final List<ImageMeta> imageMetas;
   final TraceImageService imageService;
   final _DetailPalette palette;
+  final void Function(int index) onPreview;
 
   const _HorizontalImageRow({
     required this.imageMetas,
     required this.imageService,
     required this.palette,
+    required this.onPreview,
   });
 
   @override
@@ -509,35 +592,199 @@ class _HorizontalImageRow extends StatelessWidget {
         separatorBuilder: (_, __) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final meta = imageMetas[index];
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Container(
-              width: 150,
-              height: 124,
-              color: palette.dark
-                  ? Colors.white.withValues(alpha: 0.03)
-                  : Colors.transparent,
-              child: meta.cid.isNotEmpty
-                  ? TraceImage(
-                      cid: meta.cid,
-                      encryptionKey: meta.encryptionKey,
-                      imageService: imageService,
-                    )
-                  : Container(
-                      color: palette.dark
-                          ? Colors.white.withValues(alpha: 0.03)
-                          : const Color(0xFFF0F0F5),
-                      child: const Center(
-                        child: Icon(
-                          Icons.image_outlined,
-                          size: 34,
-                          color: Color(0xFFCCCCCC),
+          return GestureDetector(
+            onTap: () => onPreview(index),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: 150,
+                height: 124,
+                color: palette.dark
+                    ? Colors.white.withValues(alpha: 0.03)
+                    : Colors.transparent,
+                child: meta.cid.isNotEmpty
+                    ? TraceImage(
+                        cid: meta.cid,
+                        encryptionKey: meta.encryptionKey,
+                        imageService: imageService,
+                      )
+                    : Container(
+                        color: palette.dark
+                            ? Colors.white.withValues(alpha: 0.03)
+                            : const Color(0xFFF0F0F5),
+                        child: const Center(
+                          child: Icon(
+                            Icons.image_outlined,
+                            size: 34,
+                            color: Color(0xFFCCCCCC),
+                          ),
                         ),
                       ),
-                    ),
+              ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _DetailFullscreenImageViewer extends StatefulWidget {
+  final int initialIndex;
+  final int itemCount;
+  final Widget Function(BuildContext context, int index) itemBuilder;
+  final Future<void> Function(int index)? onDownload;
+
+  const _DetailFullscreenImageViewer({
+    required this.initialIndex,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.onDownload,
+  });
+
+  @override
+  State<_DetailFullscreenImageViewer> createState() =>
+      _DetailFullscreenImageViewerState();
+}
+
+class _DetailFullscreenImageViewerState
+    extends State<_DetailFullscreenImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+  bool _downloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black.withValues(alpha: 0.94),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pageController,
+              itemCount: widget.itemCount,
+              onPageChanged: (index) => setState(() => _currentIndex = index),
+              itemBuilder: (context, index) => Center(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: widget.itemBuilder(context, index),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${_currentIndex + 1} / ${widget.itemCount}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 12,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            if (widget.onDownload != null)
+              Positioned(
+                right: 18,
+                bottom: 22,
+                child: FilledButton.icon(
+                  onPressed: _downloading
+                      ? null
+                      : () async {
+                          final messenger = ScaffoldMessenger.maybeOf(context);
+                          setState(() => _downloading = true);
+                          try {
+                            await widget.onDownload!(_currentIndex);
+                          } catch (e) {
+                            debugPrint('image download failed: $e');
+                            messenger?.showSnackBar(
+                              SnackBar(content: Text('下载失败：$e')),
+                            );
+                          } finally {
+                            if (mounted) {
+                              setState(() => _downloading = false);
+                            }
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.black.withValues(alpha: 0.48),
+                    disabledBackgroundColor: Colors.black.withValues(
+                      alpha: 0.35,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                  ),
+                  icon: _downloading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.download_rounded,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                  label: Text(
+                    _downloading ? '下载中' : '下载',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
