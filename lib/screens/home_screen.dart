@@ -1261,6 +1261,7 @@ class _DraftsContent extends StatelessWidget {
                           initialImageMetas: draft.existingImageMetas,
                           existingBid: draft.existingBid,
                           initialAddTime: draft.initialAddTime,
+                          initialUseManualAddTime: draft.useManualAddTime,
                           initialLat: draft.lat,
                           initialLng: draft.lng,
                         ),

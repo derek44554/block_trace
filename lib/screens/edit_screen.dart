@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -23,6 +24,7 @@ class EditScreen extends StatefulWidget {
   final List<ImageMeta> initialImageMetas;
   final String? existingBid;
   final DateTime? initialAddTime;
+  final bool initialUseManualAddTime;
   final double? initialLat;
   final double? initialLng;
   final String? draftId;
@@ -36,6 +38,7 @@ class EditScreen extends StatefulWidget {
     this.initialImageMetas = const [],
     this.existingBid,
     this.initialAddTime,
+    this.initialUseManualAddTime = false,
     this.initialLat,
     this.initialLng,
     this.draftId,
@@ -50,6 +53,7 @@ class _EditScreenState extends State<EditScreen> {
   late final TextEditingController _contentCtrl;
   final _titleFocus = FocusNode();
   final _contentFocus = FocusNode();
+  final _moreButtonKey = GlobalKey();
   final List<XFile> _images = [];
   final _picker = ImagePicker();
   double _lastBottomInset = 0;
@@ -64,6 +68,9 @@ class _EditScreenState extends State<EditScreen> {
   late final String _initialContent;
   late final double? _initialLat;
   late final double? _initialLng;
+  late final DateTime? _initialEffectiveAddTime;
+  bool _useManualAddTime = false;
+  DateTime? _manualAddTime;
   bool _saving = false;
   bool _saved = false;
   bool _exitHandled = false;
@@ -86,6 +93,9 @@ class _EditScreenState extends State<EditScreen> {
         widget.initialImageMetas.map(_metaSignature).toList();
     _initialLat = widget.initialLat;
     _initialLng = widget.initialLng;
+    _initialEffectiveAddTime = widget.initialAddTime;
+    _useManualAddTime = widget.initialUseManualAddTime;
+    _manualAddTime = widget.initialAddTime ?? DateTime.now();
 
     // 恢复原始 GPS
     if (widget.initialLat != null && widget.initialLng != null) {
@@ -110,6 +120,180 @@ class _EditScreenState extends State<EditScreen> {
     _titleFocus.dispose();
     _contentFocus.dispose();
     super.dispose();
+  }
+
+  DateTime? get _effectiveAddTime =>
+      _useManualAddTime ? _manualAddTime : widget.initialAddTime;
+
+  DateTime? _parseManualTime(String raw) {
+    final match = RegExp(
+      r'^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$',
+    ).firstMatch(raw.trim());
+    if (match == null) return null;
+
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final hour = int.parse(match.group(4)!);
+    final minute = int.parse(match.group(5)!);
+
+    if (month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > 31 ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59) {
+      return null;
+    }
+
+    final parsed = DateTime(year, month, day, hour, minute);
+    if (parsed.year != year ||
+        parsed.month != month ||
+        parsed.day != day ||
+        parsed.hour != hour ||
+        parsed.minute != minute) {
+      return null;
+    }
+    return parsed;
+  }
+
+  String _formatEditableTime(DateTime dt) =>
+      '${dt.year.toString().padLeft(4, '0')}-'
+      '${dt.month.toString().padLeft(2, '0')}-'
+      '${dt.day.toString().padLeft(2, '0')} '
+      '${dt.hour.toString().padLeft(2, '0')}:'
+      '${dt.minute.toString().padLeft(2, '0')}';
+
+  String _buildTimeHint() {
+    if (widget.initialAddTime != null) {
+      return '关闭后沿用原时间';
+    }
+    return '关闭后保存时自动取当前时间';
+  }
+
+  RelativeRect? _buttonRelativeRect(GlobalKey key) {
+    final buttonContext = key.currentContext;
+    if (buttonContext == null) return null;
+    final buttonBox = buttonContext.findRenderObject() as RenderBox?;
+    final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (buttonBox == null || overlayBox == null) return null;
+
+    final offset = buttonBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final rect = offset & buttonBox.size;
+    return RelativeRect.fromRect(rect, Offset.zero & overlayBox.size);
+  }
+
+  Rect? _buttonRect(GlobalKey key) {
+    final buttonContext = key.currentContext;
+    if (buttonContext == null) return null;
+    final box = buttonContext.findRenderObject() as RenderBox?;
+    if (box == null) return null;
+    final offset = box.localToGlobal(Offset.zero);
+    return offset & box.size;
+  }
+
+  Future<void> _showMoreMenu() async {
+    if (_saving) return;
+    final position = _buttonRelativeRect(_moreButtonKey);
+    if (position == null) return;
+
+    final action = await showMenu<String>(
+      context: context,
+      position: position,
+      color: Colors.transparent,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      items: [
+        PopupMenuItem<String>(
+          value: 'edit_time',
+          padding: EdgeInsets.zero,
+          child: _PopoverMenuCard(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4A6CF7).withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.access_time_rounded,
+                    size: 16,
+                    color: Color(0xFF4A6CF7),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
+                  '修改时间',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFF2F6FF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (action == 'edit_time' && mounted) {
+      await _showEditTimePopover();
+    }
+  }
+
+  Future<void> _showEditTimePopover() async {
+    final anchorRect = _buttonRect(_moreButtonKey);
+    if (anchorRect == null) return;
+
+    final result = await showGeneralDialog<_EditTimeResult>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '关闭修改时间',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 160),
+      pageBuilder: (_, __, ___) => _AnchoredPopoverLayout(
+        anchorRect: anchorRect,
+        estimatedHeight: _useManualAddTime ? 250 : 192,
+        child: _EditTimePopover(
+          initialUseManualAddTime: _useManualAddTime,
+          initialManualAddTime:
+              _manualAddTime ?? widget.initialAddTime ?? DateTime.now(),
+          originalAddTime: widget.initialAddTime,
+          autoHint: _buildTimeHint(),
+          formatTime: _formatEditableTime,
+          parseTime: _parseManualTime,
+        ),
+      ),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+            alignment: Alignment.topRight,
+            child: child,
+          ),
+        );
+      },
+    );
+
+    if (result == null || !mounted) return;
+    setState(() {
+      _useManualAddTime = result.useManualAddTime;
+      if (result.manualAddTime != null) {
+        _manualAddTime = result.manualAddTime;
+      }
+    });
   }
 
   Future<void> _pickImages() async {
@@ -327,6 +511,30 @@ class _EditScreenState extends State<EditScreen> {
         ),
         title: null,
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: IconButton(
+              key: _moreButtonKey,
+              onPressed: _showMoreMenu,
+              icon: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: isMacOS
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : Colors.black.withValues(alpha: 0.06),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.more_horiz_rounded,
+                  size: 18,
+                  color: isMacOS
+                      ? const Color(0xFFF2F6FF)
+                      : const Color(0xFF1A1A2E),
+                ),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: FilledButton(
@@ -567,7 +775,8 @@ class _EditScreenState extends State<EditScreen> {
       localImagePaths: _images.map((e) => e.path).toList(),
       existingImageMetas: List.from(_existingImageMetas),
       existingBid: widget.existingBid,
-      initialAddTime: widget.initialAddTime,
+      initialAddTime: _effectiveAddTime,
+      useManualAddTime: _useManualAddTime,
       lat: _gpsPosition?.latitude,
       lng: _gpsPosition?.longitude,
       updatedAt: DateTime.now(),
@@ -598,12 +807,15 @@ class _EditScreenState extends State<EditScreen> {
     final currentMetaSignatures = _existingImageMetas.map(_metaSignature).toList();
     final currentLat = _gpsPosition?.latitude;
     final currentLng = _gpsPosition?.longitude;
+    final currentAddTimeMs = _effectiveAddTime?.millisecondsSinceEpoch;
+    final initialAddTimeMs = _initialEffectiveAddTime?.millisecondsSinceEpoch;
 
     return currentTitle != _initialTitle ||
         currentContent != _initialContent ||
         !listEquals(_selectedTags, _initialTags) ||
         !listEquals(currentLocalImagePaths, _initialLocalImagePaths) ||
         !listEquals(currentMetaSignatures, _initialExistingImageMetaSignatures) ||
+        currentAddTimeMs != initialAddTimeMs ||
         currentLat != _initialLat ||
         currentLng != _initialLng;
   }
@@ -614,6 +826,11 @@ class _EditScreenState extends State<EditScreen> {
   Future<void> _onSave() async {
     final title = _titleCtrl.text.trim();
     final content = _contentCtrl.text.trim();
+    DateTime? addTime = widget.initialAddTime;
+
+    if (_useManualAddTime) {
+      addTime = _manualAddTime;
+    }
 
     print('=== _onSave called, title=$title, content=$content, images=${_images.length}, gps=$_gpsPosition');
 
@@ -666,6 +883,7 @@ class _EditScreenState extends State<EditScreen> {
         existingImageBids: existingImageBids,
         latitude: _gpsPosition?.latitude,
         longitude: _gpsPosition?.longitude,
+        addTime: addTime,
       ),
     );
 
@@ -686,6 +904,7 @@ class _EditScreenState extends State<EditScreen> {
     required List<String> existingImageBids,
     required double? latitude,
     required double? longitude,
+    required DateTime? addTime,
   }) async {
     try {
       final service = TraceService(connProvider);
@@ -697,7 +916,7 @@ class _EditScreenState extends State<EditScreen> {
         existingImageBids: existingImageBids,
         latitude: latitude,
         longitude: longitude,
-        addTime: widget.initialAddTime,
+        addTime: addTime,
         existingBid: widget.existingBid,
         onImageProgress: ({
           required int total,
@@ -874,6 +1093,382 @@ class _ImagePreviewRow extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditTimeResult {
+  final bool useManualAddTime;
+  final DateTime? manualAddTime;
+
+  const _EditTimeResult({
+    required this.useManualAddTime,
+    required this.manualAddTime,
+  });
+}
+
+class _AnchoredPopoverLayout extends StatelessWidget {
+  final Rect anchorRect;
+  final double estimatedHeight;
+  final Widget child;
+
+  const _AnchoredPopoverLayout({
+    required this.anchorRect,
+    required this.estimatedHeight,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const width = 320.0;
+    const margin = 12.0;
+    const gap = 8.0;
+    final media = MediaQuery.of(context);
+    final maxLeft = media.size.width - width - margin;
+    final left = (anchorRect.right - width).clamp(margin, maxLeft);
+    final spaceBelow = media.size.height - media.padding.bottom - anchorRect.bottom;
+    final showBelow = spaceBelow >= estimatedHeight + gap + margin;
+    final top = showBelow
+        ? anchorRect.bottom + gap
+        : (anchorRect.top - estimatedHeight - gap).clamp(
+            media.padding.top + margin,
+            media.size.height - estimatedHeight - margin,
+          );
+
+    return Stack(
+      children: [
+        Positioned(
+          left: left,
+          top: top,
+          width: width,
+          child: child,
+        ),
+      ],
+    );
+  }
+}
+
+class _PopoverMenuCard extends StatelessWidget {
+  final Widget child;
+
+  const _PopoverMenuCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF232841).withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.10),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _EditTimePopover extends StatefulWidget {
+  final bool initialUseManualAddTime;
+  final DateTime initialManualAddTime;
+  final DateTime? originalAddTime;
+  final String autoHint;
+  final String Function(DateTime dt) formatTime;
+  final DateTime? Function(String raw) parseTime;
+
+  const _EditTimePopover({
+    required this.initialUseManualAddTime,
+    required this.initialManualAddTime,
+    required this.originalAddTime,
+    required this.autoHint,
+    required this.formatTime,
+    required this.parseTime,
+  });
+
+  @override
+  State<_EditTimePopover> createState() => _EditTimePopoverState();
+}
+
+class _EditTimePopoverState extends State<_EditTimePopover> {
+  late bool _useManualAddTime;
+  late DateTime _manualAddTime;
+  late final TextEditingController _timeCtrl;
+  final _timeFocus = FocusNode();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _useManualAddTime = widget.initialUseManualAddTime;
+    _manualAddTime = widget.initialManualAddTime;
+    _timeCtrl = TextEditingController(text: widget.formatTime(_manualAddTime));
+  }
+
+  @override
+  void dispose() {
+    _timeCtrl.dispose();
+    _timeFocus.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_useManualAddTime) {
+      final parsed = widget.parseTime(_timeCtrl.text);
+      if (parsed == null) {
+        setState(() => _errorText = '时间格式请使用 YYYY-MM-DD HH:mm');
+        _timeFocus.requestFocus();
+        return;
+      }
+      _manualAddTime = parsed;
+      _timeCtrl.text = widget.formatTime(parsed);
+    }
+
+    Navigator.of(context).pop(
+      _EditTimeResult(
+        useManualAddTime: _useManualAddTime,
+        manualAddTime: _manualAddTime,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF232841).withValues(alpha: 0.94),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.10),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  blurRadius: 32,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '修改时间',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFFF2F6FF),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _useManualAddTime
+                      ? '手动时间 ${widget.formatTime(_manualAddTime)}'
+                      : (widget.originalAddTime != null
+                          ? '当前为原时间 ${widget.formatTime(widget.originalAddTime!)}'
+                          : '当前为自动时间'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color(0xFF9BA9CC),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      _SegmentButton(
+                        label: '自动',
+                        selected: !_useManualAddTime,
+                        onTap: () => setState(() {
+                          _useManualAddTime = false;
+                          _errorText = null;
+                        }),
+                      ),
+                      const SizedBox(width: 6),
+                      _SegmentButton(
+                        label: '手动',
+                        selected: _useManualAddTime,
+                        onTap: () => setState(() {
+                          _useManualAddTime = true;
+                          _errorText = null;
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (_useManualAddTime) ...[
+                  TextField(
+                    controller: _timeCtrl,
+                    focusNode: _timeFocus,
+                    autofocus: true,
+                    keyboardType: TextInputType.datetime,
+                    style: TextStyle(
+                      color: const Color(0xFFF2F6FF),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'YYYY-MM-DD HH:mm',
+                      errorText: _errorText,
+                      helperText: '统一格式：YYYY-MM-DD HH:mm',
+                      hintStyle: const TextStyle(color: Color(0xFF8E9CBE)),
+                      helperStyle: const TextStyle(color: Color(0xFF8E9CBE)),
+                      errorStyle: const TextStyle(color: Color(0xFFFF8F8F)),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.10),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.10),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide:
+                            const BorderSide(color: Color(0xFF8DA6FF)),
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (_errorText != null) {
+                        setState(() => _errorText = null);
+                      }
+                    },
+                    onSubmitted: (_) => _submit(),
+                  ),
+                ] else ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      widget.autoHint,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: const Color(0xFFD5DDF5),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text(
+                        '取消',
+                        style: TextStyle(
+                          color: const Color(0xFFAFBAD8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF4A6CF7),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('完成'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SegmentButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SegmentButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected
+                  ? const Color(0xFFF2F6FF)
+                  : const Color(0xFF97A6CB),
+            ),
+          ),
         ),
       ),
     );

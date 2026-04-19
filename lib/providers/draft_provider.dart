@@ -14,6 +14,7 @@ class TraceDraft {
   final List<ImageMeta> existingImageMetas;
   final String? existingBid;
   final DateTime? initialAddTime;
+  final bool useManualAddTime;
   final double? lat;
   final double? lng;
   final DateTime updatedAt;
@@ -38,6 +39,7 @@ class TraceDraft {
     this.saveError,
     this.existingBid,
     this.initialAddTime,
+    this.useManualAddTime = false,
     this.lat,
     this.lng,
   });
@@ -68,6 +70,7 @@ class TraceDraft {
             .toList(),
         'existingBid': existingBid,
         'initialAddTimeMs': initialAddTime?.millisecondsSinceEpoch,
+        'useManualAddTime': useManualAddTime,
         'lat': lat,
         'lng': lng,
         'updatedAtMs': updatedAt.millisecondsSinceEpoch,
@@ -113,6 +116,7 @@ class TraceDraft {
       existingBid: json['existingBid']?.toString(),
       initialAddTime:
           initialAddTimeMs is int ? DateTime.fromMillisecondsSinceEpoch(initialAddTimeMs) : null,
+      useManualAddTime: json['useManualAddTime'] == true,
       lat: (json['lat'] as num?)?.toDouble(),
       lng: (json['lng'] as num?)?.toDouble(),
       updatedAt:
@@ -134,6 +138,7 @@ class TraceDraft {
     List<ImageMeta>? existingImageMetas,
     String? existingBid,
     DateTime? initialAddTime,
+    bool? useManualAddTime,
     double? lat,
     double? lng,
     DateTime? updatedAt,
@@ -154,6 +159,7 @@ class TraceDraft {
       existingImageMetas: existingImageMetas ?? this.existingImageMetas,
       existingBid: existingBid ?? this.existingBid,
       initialAddTime: initialAddTime ?? this.initialAddTime,
+      useManualAddTime: useManualAddTime ?? this.useManualAddTime,
       lat: lat ?? this.lat,
       lng: lng ?? this.lng,
       updatedAt: updatedAt ?? this.updatedAt,

@@ -237,6 +237,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       initialLocalImagePaths: draft?.localImagePaths ?? const [],
                       initialImageMetas: draft?.existingImageMetas ?? d.imageMetas,
                       initialAddTime: draft?.initialAddTime ?? d.createdAt,
+                      initialUseManualAddTime: draft?.useManualAddTime ?? false,
                       existingBid: d.bid.isNotEmpty ? d.bid : null,
                       initialLat: draft?.lat ?? d.lat,
                       initialLng: draft?.lng ?? d.lng,
