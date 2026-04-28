@@ -1027,17 +1027,17 @@ class _EditScreenState extends State<EditScreen> {
         .map((m) => m.bid ?? m.cid)
         .toList();
 
-    await draftProvider.upsert(_buildDraftWithId(draftId: draftId));
-    await draftProvider.markSavingStart(
-      id: draftId,
-      uploadTotal: images.length,
-    );
     if (mounted) {
       setState(() => _saving = true);
     }
 
     _saved = true;
     _exitHandled = true;
+
+    await draftProvider.upsertSaving(
+      draft: _buildDraftWithId(draftId: draftId),
+      uploadTotal: images.length,
+    );
 
     unawaited(
       _saveInBackground(
@@ -1234,6 +1234,9 @@ class _ImagePreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final thumbnailSize = (110 * MediaQuery.devicePixelRatioOf(context))
+        .round();
+
     return SizedBox(
       height: 110,
       child: ListView.separated(
@@ -1250,6 +1253,9 @@ class _ImagePreviewRow extends StatelessWidget {
                   File(images[index].path),
                   width: 110,
                   height: 110,
+                  cacheWidth: thumbnailSize,
+                  cacheHeight: thumbnailSize,
+                  filterQuality: FilterQuality.medium,
                   fit: BoxFit.cover,
                 ),
               ),

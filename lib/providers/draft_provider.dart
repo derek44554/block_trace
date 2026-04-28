@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -190,6 +191,7 @@ class DraftProvider extends ChangeNotifier {
   static const _key = 'block_trace_drafts_v1';
 
   List<TraceDraft> _drafts = [];
+  Timer? _progressPersistTimer;
   List<TraceDraft> get drafts => List.unmodifiable(_drafts);
 
   String newDraftId() => 'draft_${DateTime.now().microsecondsSinceEpoch}';
@@ -234,13 +236,41 @@ class DraftProvider extends ChangeNotifier {
       _drafts.add(draft);
     }
     _drafts.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    await _persist();
+    await _persistNow();
+    notifyListeners();
+  }
+
+  Future<void> upsertSaving({
+    required TraceDraft draft,
+    required int uploadTotal,
+  }) async {
+    if (!draft.hasContent) return;
+    _removeDuplicatedExistingBidDrafts(
+      existingBid: draft.existingBid,
+      keepId: draft.id,
+    );
+    final savingDraft = draft.copyWith(
+      isSaving: true,
+      uploadTotal: uploadTotal,
+      uploadCompleted: 0,
+      clearUploadingIndex: true,
+      clearSaveError: true,
+      updatedAt: DateTime.now(),
+    );
+    final i = _drafts.indexWhere((e) => e.id == draft.id);
+    if (i >= 0) {
+      _drafts[i] = savingDraft;
+    } else {
+      _drafts.add(savingDraft);
+    }
+    _drafts.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    await _persistNow();
     notifyListeners();
   }
 
   Future<void> remove(String id) async {
     _drafts.removeWhere((e) => e.id == id);
-    await _persist();
+    await _persistNow();
     notifyListeners();
   }
 
@@ -276,7 +306,7 @@ class DraftProvider extends ChangeNotifier {
       clearSaveError: true,
       updatedAt: DateTime.now(),
     );
-    await _persist();
+    await _persistNow();
     notifyListeners();
   }
 
@@ -285,9 +315,9 @@ class DraftProvider extends ChangeNotifier {
     required int completed,
     required int total,
     int? uploadingIndex,
-  }) async {
+  }) {
     final idx = _drafts.indexWhere((e) => e.id == id);
-    if (idx < 0) return;
+    if (idx < 0) return Future.value();
     _drafts[idx] = _drafts[idx].copyWith(
       isSaving: true,
       uploadTotal: total,
@@ -295,8 +325,9 @@ class DraftProvider extends ChangeNotifier {
       uploadingIndex: uploadingIndex,
       updatedAt: DateTime.now(),
     );
-    await _persist();
+    _scheduleProgressPersist();
     notifyListeners();
+    return Future.value();
   }
 
   Future<void> markSavingFailed({
@@ -311,8 +342,28 @@ class DraftProvider extends ChangeNotifier {
       saveError: error,
       updatedAt: DateTime.now(),
     );
-    await _persist();
+    await _persistNow();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _progressPersistTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleProgressPersist() {
+    _progressPersistTimer?.cancel();
+    _progressPersistTimer = Timer(const Duration(milliseconds: 450), () {
+      _progressPersistTimer = null;
+      unawaited(_persist());
+    });
+  }
+
+  Future<void> _persistNow() async {
+    _progressPersistTimer?.cancel();
+    _progressPersistTimer = null;
+    await _persist();
   }
 
   Future<void> _persist() async {

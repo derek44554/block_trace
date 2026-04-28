@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -39,34 +38,38 @@ class TraceService {
       required int completed,
       int? uploadingIndex,
       required bool fromCache,
-    })? onImageProgress,
+    })?
+    onImageProgress,
   }) async {
     final connection = _connectionProvider.activeConnection;
     if (connection == null) throw Exception('当前没有可用的连接');
 
     final nodeData = connection.nodeData;
-    String nodeBid =
-        nodeData != null ? (nodeData['sender'] as String? ?? '') : '';
+    String nodeBid = nodeData != null
+        ? (nodeData['sender'] as String? ?? '')
+        : '';
 
     if (nodeBid.length < 10) {
       try {
-        final fresh = await ApiClient(connection: connection).postToBridge(
-          protocol: 'open',
-          routing: '/node/node',
-          data: const {},
-        );
+        final fresh = await ApiClient(
+          connection: connection,
+        ).postToBridge(protocol: 'open', routing: '/node/node', data: const {});
         nodeBid = fresh['sender'] as String? ?? '';
       } catch (_) {}
     }
     if (nodeBid.length < 10) throw Exception('无效的节点 BID，请重新连接节点');
 
-    print('=== saveTrace: images=${images.length}, nodeBid=${nodeBid.substring(0, 10)}...');
+    print(
+      '=== saveTrace: images=${images.length}, nodeBid=${nodeBid.substring(0, 10)}...',
+    );
 
     // 1. 上传图片（失败时跳过，不阻止保存）
     // 优先用 enableIpfsStorage 的连接上传
-    final storageConnection = _connectionProvider.connections
-        .where((c) => c.enableIpfsStorage)
-        .firstOrNull ?? connection;
+    final storageConnection =
+        _connectionProvider.connections
+            .where((c) => c.enableIpfsStorage)
+            .firstOrNull ??
+        connection;
 
     final imageBids = <String>[];
     final totalImages = images.length;
@@ -164,7 +167,9 @@ class TraceService {
     required String nodeBid,
   }) async {
     final ipfsData = await _uploadFile(
-        file: file, connection: storageConnection);
+      file: file,
+      connection: storageConnection,
+    );
 
     final imageBid = generateBidV2(nodeBid);
     final imageBlockData = <String, dynamic>{
@@ -186,30 +191,29 @@ class TraceService {
     required File file,
     required ConnectionModel connection,
   }) async {
-    final bytes = await file.readAsBytes();
     final ext = p.extension(file.path);
 
     final tempDir = await getTemporaryDirectory();
-    final payload = _EncPayload(
-      bytes: bytes,
-      tempDirPath: tempDir.path,
-    );
+    final payload = _EncPayload(filePath: file.path, tempDirPath: tempDir.path);
 
     // 在 Isolate 里加密，与 block_photo 保持一致
-    final result = await Isolate.run(() => _encryptBytes(payload));
+    final result = await Isolate.run(() => _encryptFile(payload));
 
     try {
-      final uploadUrl = Uri.parse(connection.address)
-          .replace(path: '/ipfs/ipfs/upload')
-          .toString();
-      final password =
-          IpfsPasswordHelper.computeUploadPassword(connection.keyBase64);
+      final uploadUrl = Uri.parse(
+        connection.address,
+      ).replace(path: '/ipfs/ipfs/upload').toString();
+      final password = IpfsPasswordHelper.computeUploadPassword(
+        connection.keyBase64,
+      );
 
       debugPrint('IPFS upload → $uploadUrl');
 
       final request = http.MultipartRequest('POST', Uri.parse(uploadUrl))
         ..fields['password'] = password
-        ..files.add(await http.MultipartFile.fromPath('file', result.uploadPath));
+        ..files.add(
+          await http.MultipartFile.fromPath('file', result.uploadPath),
+        );
 
       final response = await request.send();
       final body = await response.stream.bytesToString();
@@ -223,8 +227,9 @@ class TraceService {
       final cid = json['cid'] as String?;
       if (cid == null || cid.isEmpty) throw Exception('响应缺少 cid');
 
-      final resolvedExt =
-          ext.isNotEmpty ? (ext.startsWith('.') ? ext : '.$ext') : '';
+      final resolvedExt = ext.isNotEmpty
+          ? (ext.startsWith('.') ? ext : '.$ext')
+          : '';
 
       return {
         'cid': cid,
@@ -233,7 +238,9 @@ class TraceService {
         'encryption': {'algo': 'PPE-001', 'key': result.encryptionKeyHex},
       };
     } finally {
-      try { await File(result.uploadPath).delete(); } catch (_) {}
+      try {
+        await File(result.uploadPath).delete();
+      } catch (_) {}
     }
   }
 
@@ -280,8 +287,8 @@ class TraceService {
 // ── Isolate 数据类 ────────────────────────────────────────────
 
 class _EncPayload {
-  const _EncPayload({required this.bytes, required this.tempDirPath});
-  final Uint8List bytes;
+  const _EncPayload({required this.filePath, required this.tempDirPath});
+  final String filePath;
   final String tempDirPath;
 }
 
@@ -298,14 +305,17 @@ class _EncResult {
 
 // ── Isolate 任务（与 block_photo._processBytesPayload 完全一致）─
 
-Future<_EncResult> _encryptBytes(_EncPayload payload) async {
-  final bytes = payload.bytes;
+Future<_EncResult> _encryptFile(_EncPayload payload) async {
+  final bytes = await File(payload.filePath).readAsBytes();
   final key = _randomBytes(32);
   final algorithm = AesGcm.with256bits();
   final secretKey = await algorithm.newSecretKeyFromBytes(key);
   final nonce = algorithm.newNonce();
-  final secretBox =
-      await algorithm.encrypt(bytes, secretKey: secretKey, nonce: nonce);
+  final secretBox = await algorithm.encrypt(
+    bytes,
+    secretKey: secretKey,
+    nonce: nonce,
+  );
 
   final combined = Uint8List.fromList([
     ...nonce,
