@@ -184,7 +184,7 @@ class _MacSidebarState extends State<_MacSidebar> {
         children: [
           // 仅顶部区域可拖拽窗口，避免菜单点击被拖拽手势延迟
           const DragToMoveArea(
-            child: SizedBox(height: 28, width: double.infinity),
+            child: SizedBox(height: 38, width: double.infinity),
           ),
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
